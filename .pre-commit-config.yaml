@@ -1,0 +1,40 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.11.11
+    hooks:
+      # 1) Auto-format with Ruff
+      - id: ruff
+        name: Formatter (ruff)
+        language: python
+        require_serial: true
+        args:
+          - --fix
+          - --config=pyproject.toml
+
+      # 2) Lint with Ruff
+      - id: ruff
+        name: Linter (ruff)
+        language: python
+        require_serial: true
+        args:
+          - --config=pyproject.toml
+
+  - repo: https://github.com/RobertCraigie/pyright-python
+    rev: v1.1.401
+    hooks:
+      - id: pyright
+        name: Type checker (pyright)
+        language: python
+        require_serial: true
+        args:
+          - --project=pyproject.toml
+
+  - repo: https://github.com/pycqa/isort
+    rev: 6.0.1
+    hooks:
+      - id: isort
+        name: Import sorting (isort)
+        language: python
+        require_serial: true
+        args:
+          - --sp=pyproject.toml
