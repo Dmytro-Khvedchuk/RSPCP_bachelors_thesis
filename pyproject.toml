@@ -116,6 +116,9 @@ convention = "google"
 "src/tests/*" = [
     "S101"
 ]
+"**/alembic/versions/*.py" = [
+    "D103"
+]
 
 [tool.ruff.format]
 # Enable reformatting of code snippets in docstrings.
@@ -176,3 +179,9 @@ no_inline_sort = false
 
 # Lines after imports
 lines_after_imports = 2
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.408",
+    "ruff>=0.15.4",
+]
