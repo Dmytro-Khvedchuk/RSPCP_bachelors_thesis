@@ -10,6 +10,8 @@ default:
 # 🚀 Application
 # ==============================================================================
 # Commands for running the main application.
+run:
+    python main.py
 
 # ==============================================================================
 # 📦 Dependency Management
@@ -46,3 +48,23 @@ uninstall-hooks:
 # Run all pre-commit hooks against all files.
 lint:
     pre-commit run --all-files
+
+# ==============================================================================
+# 🗄️  Database Migrations
+# ==============================================================================
+# Commands for managing DuckDB schema migrations via Alembic.
+
+_alembic_cfg := "src/app/system/database/alembic.cfg"
+
+# Run all pending Alembic migrations to bring the database up to date.
+migrate:
+    alembic -c {{_alembic_cfg}} upgrade head
+
+# Create a new Alembic migration file.
+# Usage: just migration "short description of the change"
+migration message:
+    alembic -c {{_alembic_cfg}} revision -m "{{message}}"
+
+# Downgrade the database by one migration step.
+migrate-down:
+    alembic -c {{_alembic_cfg}} downgrade -1

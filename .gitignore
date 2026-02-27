@@ -306,3 +306,10 @@ container_logs_*
 
 # Volumes
 **/redis_data/
+
+# DuckDB
+*.duckdb
+*.duckdb.wal
+
+# Logs
+logs/
