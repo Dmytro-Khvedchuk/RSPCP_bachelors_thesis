@@ -11,7 +11,7 @@ from pydantic import ValidationError
 
 from src.app.ingestion.application.commands import IngestAssetCommand, IngestUniverseCommand
 from src.app.ohlcv.domain.value_objects import Asset, Timeframe
-from src.tests.conftest import END_DT, START_DT, make_asset, make_date_range
+from src.tests.conftest import END_DT, make_asset, make_date_range, START_DT
 
 
 # ---------------------------------------------------------------------------

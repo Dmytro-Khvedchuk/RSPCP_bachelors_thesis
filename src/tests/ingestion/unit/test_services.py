@@ -7,14 +7,14 @@ logic is exercised.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, UTC
 
 from src.app.ingestion.application.commands import IngestAssetCommand, IngestUniverseCommand
 from src.app.ingestion.application.services import IngestionService
 from src.app.ingestion.domain.value_objects import FetchRequest
 from src.app.ohlcv.domain.entities import OHLCVCandle
 from src.app.ohlcv.domain.value_objects import Asset, DateRange, Timeframe
-from src.tests.conftest import START_DT, END_DT, make_asset, make_candle, make_date_range
+from src.tests.conftest import END_DT, make_asset, make_candle, make_date_range, START_DT
 from src.tests.ingestion.conftest import FakeMarketDataFetcher, FakeOHLCVRepository
 
 

@@ -17,11 +17,7 @@ import pytest
 from pydantic import ValidationError
 
 from src.app.ingestion.infrastructure.settings import BinanceSettings
-from src.tests.ingestion.conftest import (
-    FAKE_API_KEY,
-    FAKE_SECRET_KEY,
-    BinanceSettingsNoEnvFile,
-)
+from src.tests.ingestion.conftest import BinanceSettingsNoEnvFile, FAKE_API_KEY, FAKE_SECRET_KEY
 
 
 # ---------------------------------------------------------------------------

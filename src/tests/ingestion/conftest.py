@@ -16,7 +16,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from src.app.ingestion.domain.value_objects import FetchRequest
 from src.app.ingestion.infrastructure.settings import BinanceSettings
 from src.app.ohlcv.domain.entities import OHLCVCandle
-from src.app.ohlcv.domain.value_objects import Asset, DateRange, Timeframe, TemporalSplit
+from src.app.ohlcv.domain.value_objects import Asset, DateRange, TemporalSplit, Timeframe
+
 
 # ---------------------------------------------------------------------------
 # Constants

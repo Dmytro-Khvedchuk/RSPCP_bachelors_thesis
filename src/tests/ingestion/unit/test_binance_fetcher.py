@@ -7,30 +7,21 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, UTC
 from decimal import Decimal
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.app.ingestion.domain.exceptions import FetchError, RateLimitError
-from src.app.ingestion.domain.value_objects import (
-    BinanceKlineInterval,
-    FetchRequest,
-    TIMEFRAME_INTERVAL_MS,
-)
+from src.app.ingestion.domain.exceptions import RateLimitError
+from src.app.ingestion.domain.value_objects import BinanceKlineInterval, FetchRequest, TIMEFRAME_INTERVAL_MS
 from src.app.ingestion.infrastructure.binance_fetcher import BinanceFetcher
 from src.app.ingestion.infrastructure.settings import BinanceSettings
 from src.app.ohlcv.domain.entities import OHLCVCandle
 from src.app.ohlcv.domain.value_objects import Asset, DateRange, Timeframe
-from src.tests.conftest import START_DT, make_asset
-from src.tests.ingestion.conftest import (
-    KLINE_OPEN_TIME_MS,
-    SAMPLE_KLINE_ROW,
-    build_kline_batch,
-    make_binance_settings,
-)
+from src.tests.conftest import make_asset, START_DT
+from src.tests.ingestion.conftest import build_kline_batch, KLINE_OPEN_TIME_MS, make_binance_settings, SAMPLE_KLINE_ROW
 
 
 # ---------------------------------------------------------------------------
@@ -132,8 +123,8 @@ class TestRawToCandle:
         assert candle.timeframe == _H1
 
     @pytest.mark.parametrize(
-        ("timeframe",),
-        [(Timeframe.H1,), (Timeframe.H4,), (Timeframe.D1,)],
+        "timeframe",
+        [Timeframe.H1, Timeframe.H4, Timeframe.D1],
     )
     def test_raw_to_candle_with_all_timeframes(self, timeframe: Timeframe) -> None:
         """_raw_to_candle() must succeed for every supported Timeframe."""
@@ -364,7 +355,7 @@ class TestFetchOhlcv:
         ``_fetch_klines_batch`` when all retries fail.
         """
         from requests.exceptions import ConnectionError as RequestsConnectionError
-        from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait_none
+        from tenacity import retry_if_exception_type, Retrying, stop_after_attempt, wait_none
 
         start_ms: int = KLINE_OPEN_TIME_MS
         end_ms: int = start_ms + TIMEFRAME_INTERVAL_MS[BinanceKlineInterval.H1] * 2

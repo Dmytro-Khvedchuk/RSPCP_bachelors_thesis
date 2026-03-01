@@ -6,18 +6,14 @@ Tests cover ``BinanceKlineInterval``, ``FetchRequest``, and
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, UTC
 
 import pytest
 from pydantic import ValidationError
 
-from src.app.ingestion.domain.value_objects import (
-    BinanceKlineInterval,
-    FetchRequest,
-    TIMEFRAME_INTERVAL_MS,
-)
+from src.app.ingestion.domain.value_objects import BinanceKlineInterval, FetchRequest, TIMEFRAME_INTERVAL_MS
 from src.app.ohlcv.domain.value_objects import Asset, DateRange, Timeframe
-from src.tests.conftest import START_DT, make_date_range
+from src.tests.conftest import make_date_range, START_DT
 
 
 # ---------------------------------------------------------------------------
