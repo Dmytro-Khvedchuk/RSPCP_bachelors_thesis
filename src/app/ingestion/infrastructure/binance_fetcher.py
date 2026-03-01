@@ -54,7 +54,7 @@ class BinanceFetcher:
         self._settings: BinanceSettings = settings
         self._client: Client = Client(
             api_key=settings.api_key,
-            api_secret=settings.api_secret,
+            api_secret=settings.secret_key,
         )
         self._retryer: Retrying = Retrying(  # type: ignore[type-arg]
             stop=stop_after_attempt(settings.max_retries),

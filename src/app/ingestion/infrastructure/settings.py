@@ -21,7 +21,7 @@ class BinanceSettings(BaseSettings):
     )
 
     api_key: str = Field(description="Binance API key for authentication.")
-    api_secret: str = Field(description="Binance API secret for authentication.")
+    secret_key: str = Field(description="Binance API secret for authentication.")
     max_retries: int = Field(default=5, ge=1, description="Maximum number of retry attempts per API call.")
     retry_min_wait: int = Field(default=1, ge=1, description="Minimum wait time in seconds between retries.")
     retry_max_wait: int = Field(default=10, ge=1, description="Maximum wait time in seconds between retries.")

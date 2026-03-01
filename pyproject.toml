@@ -19,6 +19,7 @@ dependencies = [
     "python-binance>=1.0.29",
     "sqlalchemy>=2.0.46",
     "tenacity>=9.1.2",
+    "typer>=0.24.1",
 ]
 
 [tool.pyright]
