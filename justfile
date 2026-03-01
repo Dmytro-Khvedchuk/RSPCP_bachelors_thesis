@@ -24,6 +24,15 @@ ingest *args:
     python -m src.app.ingestion.cli {{args}}
 
 # ==============================================================================
+# 🧪 Testing
+# ==============================================================================
+# Commands for running the test suite.
+
+# Run the full test suite.
+test *args:
+    uv run pytest src/tests/ {{args}}
+
+# ==============================================================================
 # 📦 Dependency Management
 # ==============================================================================
 # Commands for managing project dependencies with uv.
