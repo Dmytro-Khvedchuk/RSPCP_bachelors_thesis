@@ -14,6 +14,16 @@ run:
     python main.py
 
 # ==============================================================================
+# 📥 Data Ingestion
+# ==============================================================================
+# Commands for fetching OHLCV data from Binance into DuckDB.
+
+# Ingest OHLCV data from Binance.
+# Usage: just ingest --assets BTCUSDT,ETHUSDT --timeframes 1h,4h --start 2020-01-01
+ingest *args:
+    python -m src.app.ingestion.cli {{args}}
+
+# ==============================================================================
 # 📦 Dependency Management
 # ==============================================================================
 # Commands for managing project dependencies with uv.
