@@ -117,7 +117,16 @@ convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
 "src/tests/*" = [
-    "S101"
+    "S101",    # assert is fine in tests
+    "S105",    # hardcoded fake passwords are intentional
+    "S106",    # hardcoded fake passwords are intentional
+    "PLR6301", # test methods don't use self — pytest requires instance methods
+    "PLR2004", # magic values in assertions are idiomatic (assert len(x) == 2)
+    "ARG002",  # unused fixture args trigger side-effects (e.g. set_binance_env)
+    "DOC501",  # test docstrings don't need Raises sections
+    "PT012",   # multi-statement pytest.raises blocks are acceptable
+    "PT017",   # assertion on exception in except block (testing chaining)
+    "TRY301",  # raise-in-try is the point of exception tests
 ]
 "**/alembic/versions/*.py" = [
     "D103"
@@ -183,8 +192,15 @@ no_inline_sort = false
 # Lines after imports
 lines_after_imports = 2
 
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore::DeprecationWarning:websockets",
+    "ignore::DeprecationWarning:binance",
+]
+
 [dependency-groups]
 dev = [
     "pyright>=1.1.408",
+    "pytest>=9.0.2",
     "ruff>=0.15.4",
 ]
