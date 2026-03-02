@@ -1,0 +1,1 @@
+"""OHLCV domain layer."""

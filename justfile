@@ -10,6 +10,27 @@ default:
 # 🚀 Application
 # ==============================================================================
 # Commands for running the main application.
+run:
+    python main.py
+
+# ==============================================================================
+# 📥 Data Ingestion
+# ==============================================================================
+# Commands for fetching OHLCV data from Binance into DuckDB.
+
+# Ingest OHLCV data from Binance.
+# Usage: just ingest --assets BTCUSDT,ETHUSDT --timeframes 1h,4h --start 2020-01-01
+ingest *args:
+    python -m src.app.ingestion.cli {{args}}
+
+# ==============================================================================
+# 🧪 Testing
+# ==============================================================================
+# Commands for running the test suite.
+
+# Run the full test suite.
+test *args:
+    uv run pytest src/tests/ {{args}}
 
 # ==============================================================================
 # 📦 Dependency Management
@@ -46,3 +67,23 @@ uninstall-hooks:
 # Run all pre-commit hooks against all files.
 lint:
     pre-commit run --all-files
+
+# ==============================================================================
+# 🗄️  Database Migrations
+# ==============================================================================
+# Commands for managing DuckDB schema migrations via Alembic.
+
+_alembic_cfg := "src/app/system/database/alembic.cfg"
+
+# Run all pending Alembic migrations to bring the database up to date.
+migrate:
+    alembic -c {{_alembic_cfg}} upgrade head
+
+# Create a new Alembic migration file.
+# Usage: just migration "short description of the change"
+migration message:
+    alembic -c {{_alembic_cfg}} revision -m "{{message}}"
+
+# Downgrade the database by one migration step.
+migrate-down:
+    alembic -c {{_alembic_cfg}} downgrade -1
