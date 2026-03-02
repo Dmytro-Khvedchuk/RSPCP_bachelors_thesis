@@ -92,16 +92,10 @@ class TemporalSplit(BaseModel, frozen=True):
     @model_validator(mode="after")
     def _strict_ordering(self) -> Self:
         if self.train.end > self.validation.start:
-            msg = (
-                f"Train end ({self.train.end}) must not exceed "
-                f"validation start ({self.validation.start})"
-            )
+            msg = f"Train end ({self.train.end}) must not exceed validation start ({self.validation.start})"
             raise ValueError(msg)
         if self.validation.end > self.test.start:
-            msg = (
-                f"Validation end ({self.validation.end}) must not exceed "
-                f"test start ({self.test.start})"
-            )
+            msg = f"Validation end ({self.validation.end}) must not exceed test start ({self.test.start})"
             raise ValueError(msg)
         return self
 

@@ -43,10 +43,7 @@ class BaseRepository[T](ABC):
         """
         with self._get_connection() as conn:
             result: CursorResult[Any] = conn.execute(
-                text(
-                    "SELECT COUNT(*) FROM information_schema.tables "
-                    "WHERE table_name = :name"
-                ),
+                text("SELECT COUNT(*) FROM information_schema.tables WHERE table_name = :name"),
                 {"name": self.TABLE_NAME},
             )
             return bool(result.scalar())

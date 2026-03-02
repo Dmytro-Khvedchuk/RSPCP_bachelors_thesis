@@ -8,6 +8,7 @@ dependencies = [
     "alembic>=1.18.4",
     "duckdb>=1.4.4",
     "duckdb-engine>=0.17.0",
+    "isort>=8.0.1",
     "loguru>=0.7.3",
     "mkdocs>=1.6.1",
     "mkdocs-api-autonav>=0.4.0",
@@ -200,6 +201,7 @@ filterwarnings = [
 
 [dependency-groups]
 dev = [
+    "isort>=8.0.1",
     "pyright>=1.1.408",
     "pytest>=9.0.2",
     "ruff>=0.15.4",

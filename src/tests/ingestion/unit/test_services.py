@@ -159,9 +159,7 @@ class TestIngestionServiceIngestUniverse:
         candles_per_call: list[OHLCVCandle] = [
             make_candle(_BTC, Timeframe.H1, START_DT + timedelta(hours=i)) for i in range(3)
         ]
-        fetcher: FakeMarketDataFetcher = FakeMarketDataFetcher(
-            candles_to_return=candles_per_call
-        )
+        fetcher: FakeMarketDataFetcher = FakeMarketDataFetcher(candles_to_return=candles_per_call)
         repo: FakeOHLCVRepository = FakeOHLCVRepository()
         service: IngestionService = IngestionService(fetcher=fetcher, repository=repo)
 

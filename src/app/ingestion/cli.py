@@ -52,9 +52,7 @@ def _parse_assets(raw: str) -> list[Asset]:
         try:
             assets.append(Asset(symbol=symbol))
         except ValidationError as exc:
-            raise typer.BadParameter(
-                f"Invalid asset symbol '{symbol}': {exc}"
-            ) from exc
+            raise typer.BadParameter(f"Invalid asset symbol '{symbol}': {exc}") from exc
 
     return assets
 
@@ -82,9 +80,7 @@ def _parse_timeframes(raw: str) -> list[Timeframe]:
     timeframes: list[Timeframe] = []
     for interval in intervals:
         if interval not in valid_values:
-            raise typer.BadParameter(
-                f"Invalid timeframe '{interval}'. Valid values: {sorted(valid_values)}"
-            )
+            raise typer.BadParameter(f"Invalid timeframe '{interval}'. Valid values: {sorted(valid_values)}")
         timeframes.append(Timeframe(interval))
 
     return timeframes
@@ -107,9 +103,7 @@ def _parse_date(raw: str) -> datetime:
     try:
         parsed: datetime = datetime.fromisoformat(raw)
     except ValueError as exc:
-        raise typer.BadParameter(
-            f"Cannot parse date '{raw}' — expected ISO-8601 format (e.g. 2020-01-01)."
-        ) from exc
+        raise typer.BadParameter(f"Cannot parse date '{raw}' — expected ISO-8601 format (e.g. 2020-01-01).") from exc
 
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=UTC)
