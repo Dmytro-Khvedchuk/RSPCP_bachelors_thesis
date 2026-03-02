@@ -4,6 +4,9 @@ on:
   pull_request:
     branches: [main, dev]
 
+env:
+  UV_HTTP_TIMEOUT: 300
+
 jobs:
   lint:
     name: Lint & Type Check
@@ -14,9 +17,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-
-      - name: Install Python 3.14
-        run: uv python install 3.14
+          python-version: "3.14"
 
       - name: Install dependencies
         run: uv sync --dev
@@ -42,9 +43,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-
-      - name: Install Python 3.14
-        run: uv python install 3.14
+          python-version: "3.14"
 
       - name: Install dependencies
         run: uv sync --dev
