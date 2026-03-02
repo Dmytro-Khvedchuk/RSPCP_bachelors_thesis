@@ -66,60 +66,44 @@ class TestRawToCandle:
 
     def test_timestamp_converted_from_ms_to_utc_datetime(self) -> None:
         """Millisecond open_time must be converted to a UTC-aware datetime."""
-        candle: OHLCVCandle = BinanceFetcher._raw_to_candle(
-            SAMPLE_KLINE_ROW, _BTCUSDT, _H1
-        )
+        candle: OHLCVCandle = BinanceFetcher._raw_to_candle(SAMPLE_KLINE_ROW, _BTCUSDT, _H1)
         assert candle.timestamp == START_DT
         assert candle.timestamp.tzinfo is UTC
 
     def test_open_price_converted_to_decimal(self) -> None:
         """Open price string must be converted to a Decimal with full precision."""
-        candle: OHLCVCandle = BinanceFetcher._raw_to_candle(
-            SAMPLE_KLINE_ROW, _BTCUSDT, _H1
-        )
+        candle: OHLCVCandle = BinanceFetcher._raw_to_candle(SAMPLE_KLINE_ROW, _BTCUSDT, _H1)
         assert candle.open == Decimal("42000.00")
 
     def test_high_price_converted_to_decimal(self) -> None:
         """High price string must be converted to the correct Decimal."""
-        candle: OHLCVCandle = BinanceFetcher._raw_to_candle(
-            SAMPLE_KLINE_ROW, _BTCUSDT, _H1
-        )
+        candle: OHLCVCandle = BinanceFetcher._raw_to_candle(SAMPLE_KLINE_ROW, _BTCUSDT, _H1)
         assert candle.high == Decimal("42500.00")
 
     def test_low_price_converted_to_decimal(self) -> None:
         """Low price string must be converted to the correct Decimal."""
-        candle: OHLCVCandle = BinanceFetcher._raw_to_candle(
-            SAMPLE_KLINE_ROW, _BTCUSDT, _H1
-        )
+        candle: OHLCVCandle = BinanceFetcher._raw_to_candle(SAMPLE_KLINE_ROW, _BTCUSDT, _H1)
         assert candle.low == Decimal("41800.00")
 
     def test_close_price_converted_to_decimal(self) -> None:
         """Close price string must be converted to the correct Decimal."""
-        candle: OHLCVCandle = BinanceFetcher._raw_to_candle(
-            SAMPLE_KLINE_ROW, _BTCUSDT, _H1
-        )
+        candle: OHLCVCandle = BinanceFetcher._raw_to_candle(SAMPLE_KLINE_ROW, _BTCUSDT, _H1)
         assert candle.close == Decimal("42200.00")
 
     def test_volume_converted_to_float(self) -> None:
         """Volume string must be converted to a float."""
-        candle: OHLCVCandle = BinanceFetcher._raw_to_candle(
-            SAMPLE_KLINE_ROW, _BTCUSDT, _H1
-        )
+        candle: OHLCVCandle = BinanceFetcher._raw_to_candle(SAMPLE_KLINE_ROW, _BTCUSDT, _H1)
         assert isinstance(candle.volume, float)
         assert candle.volume == pytest.approx(150.5)
 
     def test_asset_is_passed_through_correctly(self) -> None:
         """The asset on the resulting candle must match the input asset."""
-        candle: OHLCVCandle = BinanceFetcher._raw_to_candle(
-            SAMPLE_KLINE_ROW, _BTCUSDT, _H1
-        )
+        candle: OHLCVCandle = BinanceFetcher._raw_to_candle(SAMPLE_KLINE_ROW, _BTCUSDT, _H1)
         assert candle.asset == _BTCUSDT
 
     def test_timeframe_is_passed_through_correctly(self) -> None:
         """The timeframe on the resulting candle must match the input timeframe."""
-        candle: OHLCVCandle = BinanceFetcher._raw_to_candle(
-            SAMPLE_KLINE_ROW, _BTCUSDT, _H1
-        )
+        candle: OHLCVCandle = BinanceFetcher._raw_to_candle(SAMPLE_KLINE_ROW, _BTCUSDT, _H1)
         assert candle.timeframe == _H1
 
     @pytest.mark.parametrize(
@@ -128,9 +112,7 @@ class TestRawToCandle:
     )
     def test_raw_to_candle_with_all_timeframes(self, timeframe: Timeframe) -> None:
         """_raw_to_candle() must succeed for every supported Timeframe."""
-        candle: OHLCVCandle = BinanceFetcher._raw_to_candle(
-            SAMPLE_KLINE_ROW, _BTCUSDT, timeframe
-        )
+        candle: OHLCVCandle = BinanceFetcher._raw_to_candle(SAMPLE_KLINE_ROW, _BTCUSDT, timeframe)
         assert candle.timeframe == timeframe
 
     def test_epoch_zero_produces_utc_epoch_datetime(self) -> None:

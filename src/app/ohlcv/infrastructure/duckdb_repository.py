@@ -104,9 +104,7 @@ class DuckDBOHLCVRepository(BaseRepository[OHLCVCandle]):
 
         try:
             with self._get_connection() as conn:
-                result: CursorResult[Any] = conn.execute(
-                    sql, {"asset": asset.symbol, "timeframe": timeframe.value}
-                )
+                result: CursorResult[Any] = conn.execute(sql, {"asset": asset.symbol, "timeframe": timeframe.value})
                 conn.commit()
                 written: int = result.rowcount if result.rowcount >= 0 else 0
         except Exception as exc:
@@ -262,9 +260,7 @@ class DuckDBOHLCVRepository(BaseRepository[OHLCVCandle]):
             "WHERE asset = :asset AND timeframe = :timeframe"
         )
         with self._get_connection() as conn:
-            row: Row[Any] | None = conn.execute(
-                sql, {"asset": asset.symbol, "timeframe": timeframe.value}
-            ).fetchone()
+            row: Row[Any] | None = conn.execute(sql, {"asset": asset.symbol, "timeframe": timeframe.value}).fetchone()
 
         if row is None or row[0] is None:
             return None

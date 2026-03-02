@@ -157,9 +157,7 @@ class TestTimeframeIntervalMs:
     def test_all_intervals_have_entry(self) -> None:
         """Every BinanceKlineInterval member must appear as a key in the mapping."""
         for interval in BinanceKlineInterval:
-            assert interval in TIMEFRAME_INTERVAL_MS, (
-                f"{interval!r} missing from TIMEFRAME_INTERVAL_MS"
-            )
+            assert interval in TIMEFRAME_INTERVAL_MS, f"{interval!r} missing from TIMEFRAME_INTERVAL_MS"
 
     def test_m1_duration_is_60_seconds_in_ms(self) -> None:
         """M1 interval must correspond to exactly 60 000 ms."""
@@ -200,18 +198,12 @@ class TestTimeframeIntervalMs:
 
     def test_h1_equals_60_times_m1(self) -> None:
         """H1 duration must be exactly 60x M1 duration."""
-        assert TIMEFRAME_INTERVAL_MS[BinanceKlineInterval.H1] == (
-            60 * TIMEFRAME_INTERVAL_MS[BinanceKlineInterval.M1]
-        )
+        assert TIMEFRAME_INTERVAL_MS[BinanceKlineInterval.H1] == (60 * TIMEFRAME_INTERVAL_MS[BinanceKlineInterval.M1])
 
     def test_h4_equals_4_times_h1(self) -> None:
         """H4 duration must be exactly 4x H1 duration."""
-        assert TIMEFRAME_INTERVAL_MS[BinanceKlineInterval.H4] == (
-            4 * TIMEFRAME_INTERVAL_MS[BinanceKlineInterval.H1]
-        )
+        assert TIMEFRAME_INTERVAL_MS[BinanceKlineInterval.H4] == (4 * TIMEFRAME_INTERVAL_MS[BinanceKlineInterval.H1])
 
     def test_d1_equals_24_times_h1(self) -> None:
         """D1 duration must be exactly 24x H1 duration."""
-        assert TIMEFRAME_INTERVAL_MS[BinanceKlineInterval.D1] == (
-            24 * TIMEFRAME_INTERVAL_MS[BinanceKlineInterval.H1]
-        )
+        assert TIMEFRAME_INTERVAL_MS[BinanceKlineInterval.D1] == (24 * TIMEFRAME_INTERVAL_MS[BinanceKlineInterval.H1])

@@ -199,9 +199,7 @@ class TestIngestUniverseCommand:
 
     def test_large_universe_is_accepted(self) -> None:
         """IngestUniverseCommand must accept many assets and timeframes without error."""
-        many_assets: list[Asset] = [
-            Asset(symbol=f"ASSET{i:02d}") for i in range(10)
-        ]
+        many_assets: list[Asset] = [Asset(symbol=f"ASSET{i:02d}") for i in range(10)]
         all_timeframes: list[Timeframe] = list(Timeframe)
 
         cmd: IngestUniverseCommand = IngestUniverseCommand(

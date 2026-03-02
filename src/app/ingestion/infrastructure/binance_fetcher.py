@@ -115,10 +115,7 @@ class BinanceFetcher:
                 )
                 break
 
-            candles.extend(
-                self._raw_to_candle(row, request.asset, request.timeframe)
-                for row in batch
-            )
+            candles.extend(self._raw_to_candle(row, request.asset, request.timeframe) for row in batch)
 
             last_open_time: int = int(batch[-1][0])
             next_start: int = last_open_time + interval_ms

@@ -167,9 +167,7 @@ class TestParseTimeframes:
             ("1d", Timeframe.D1),
         ],
     )
-    def test_each_valid_value_maps_correctly(
-        self, raw: str, expected: Timeframe
-    ) -> None:
+    def test_each_valid_value_maps_correctly(self, raw: str, expected: Timeframe) -> None:
         """Each valid timeframe string must map to the expected Timeframe member."""
         result: list[Timeframe] = _parse_timeframes(raw)
         assert result[0] == expected
