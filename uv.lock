@@ -782,6 +782,15 @@ wheels = [
 ]
 
 [[package]]
+name = "isort"
+version = "8.0.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/ef/7c/ec4ab396d31b3b395e2e999c8f46dec78c5e29209fac49d1f4dace04041d/isort-8.0.1.tar.gz", hash = "sha256:171ac4ff559cdc060bcfff550bc8404a486fee0caab245679c2abe7cb253c78d", size = 769592, upload-time = "2026-02-28T10:08:20.685Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3e/95/c7c34aa53c16353c56d0b802fba48d5f5caa2cdee7958acbcb795c830416/isort-8.0.1-py3-none-any.whl", hash = "sha256:28b89bc70f751b559aeca209e6120393d43fbe2490de0559662be7a9787e3d75", size = 89733, upload-time = "2026-02-28T10:08:19.466Z" },
+]
+
+[[package]]
 name = "itsdangerous"
 version = "2.2.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1883,6 +1892,7 @@ dependencies = [
     { name = "alembic" },
     { name = "duckdb" },
     { name = "duckdb-engine" },
+    { name = "isort" },
     { name = "loguru" },
     { name = "mkdocs" },
     { name = "mkdocs-api-autonav" },
@@ -1899,6 +1909,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "isort" },
     { name = "pyright" },
     { name = "pytest" },
     { name = "ruff" },
@@ -1909,6 +1920,7 @@ requires-dist = [
     { name = "alembic", specifier = ">=1.18.4" },
     { name = "duckdb", specifier = ">=1.4.4" },
     { name = "duckdb-engine", specifier = ">=0.17.0" },
+    { name = "isort", specifier = ">=8.0.1" },
     { name = "loguru", specifier = ">=0.7.3" },
     { name = "mkdocs", specifier = ">=1.6.1" },
     { name = "mkdocs-api-autonav", specifier = ">=0.4.0" },
@@ -1925,6 +1937,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "isort", specifier = ">=8.0.1" },
     { name = "pyright", specifier = ">=1.1.408" },
     { name = "pytest", specifier = ">=9.0.2" },
     { name = "ruff", specifier = ">=0.15.4" },
