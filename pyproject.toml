@@ -15,6 +15,7 @@ dependencies = [
     "mkdocs-material>=9.7.1",
     "mkdocstrings>=1.0.3",
     "mlflow>=3.9.0",
+    "polars>=1.38.1",
     "pre-commit>=4.5.1",
     "pydantic-settings>=2.13.1",
     "python-binance>=1.0.29",
