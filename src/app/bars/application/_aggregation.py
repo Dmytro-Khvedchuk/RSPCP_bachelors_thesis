@@ -1,15 +1,18 @@
-"""Shared aggregation logic for standard bar construction.
+"""Shared aggregation logic for bar construction.
 
-Provides a vectorised Polars-based aggregation pipeline used by tick,
-volume, and dollar bar aggregators.  The only difference between the three
-is the *metric expression* that drives bar boundaries.
+Provides:
+* A vectorised Polars pipeline for standard bars (tick, volume, dollar).
+* A NumPy-based bar builder for information-driven bars (imbalance, run)
+  where sequential state prevents full vectorisation.
 """
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 
+import numpy as np
+import numpy.typing as npt
 import polars as pl
 
 from src.app.bars.domain.entities import AggregatedBar
@@ -22,7 +25,7 @@ _REQUIRED_COLUMNS: frozenset[str] = frozenset(
 )
 
 
-def _validate_input(trades: pl.DataFrame) -> None:
+def validate_input(trades: pl.DataFrame) -> None:
     """Check that *trades* contains every required column.
 
     Args:
@@ -37,7 +40,7 @@ def _validate_input(trades: pl.DataFrame) -> None:
         raise ValueError(msg)
 
 
-def _infer_candle_period(trades: pl.DataFrame) -> timedelta:
+def infer_candle_period(trades: pl.DataFrame) -> timedelta:
     """Infer the candle duration from the first two timestamps.
 
     Falls back to one minute when the duration cannot be determined
@@ -85,12 +88,12 @@ def aggregate_by_metric(
     Returns:
         List of aggregated bars ordered by ``start_ts``.
     """
-    _validate_input(trades)
+    validate_input(trades)
 
     if trades.is_empty():
         return []
 
-    candle_period: timedelta = _infer_candle_period(trades)
+    candle_period: timedelta = infer_candle_period(trades)
     df: pl.DataFrame = trades.sort("timestamp")
 
     # ── per-row metric & cumulative sum ──────────────────────────────
@@ -171,3 +174,78 @@ def aggregate_by_metric(
         results.append(bar)
 
     return results
+
+
+# =====================================================================
+# NumPy-based bar builder (used by information-driven bars)
+# =====================================================================
+
+
+def build_bar_from_arrays(  # noqa: PLR0913
+    *,
+    asset: Asset,
+    bar_type: BarType,
+    timestamps: list[datetime],
+    opens: npt.NDArray[np.float64],
+    highs: npt.NDArray[np.float64],
+    lows: npt.NDArray[np.float64],
+    closes: npt.NDArray[np.float64],
+    volumes: npt.NDArray[np.float64],
+    start_idx: int,
+    end_idx: int,
+    candle_period: timedelta,
+) -> AggregatedBar:
+    """Build a single :class:`AggregatedBar` from NumPy array slices.
+
+    Used by information-driven bar aggregators (imbalance, run) where
+    sequential state prevents fully vectorised bar assignment.
+
+    Args:
+        asset: Trading-pair symbol.
+        bar_type: Bar aggregation type tag.
+        timestamps: Python list of datetime objects (one per input row).
+        opens: Open prices as float64 array.
+        highs: High prices as float64 array.
+        lows: Low prices as float64 array.
+        closes: Close prices as float64 array.
+        volumes: Volumes as float64 array.
+        start_idx: First row index (inclusive) of the bar.
+        end_idx: Last row index (inclusive) of the bar.
+        candle_period: Duration of a single input candle.
+
+    Returns:
+        A fully constructed aggregated bar entity.
+    """
+    s: slice = slice(start_idx, end_idx + 1)
+    bar_highs: npt.NDArray[np.float64] = highs[s]
+    bar_lows: npt.NDArray[np.float64] = lows[s]
+    bar_closes: npt.NDArray[np.float64] = closes[s]
+    bar_volumes: npt.NDArray[np.float64] = volumes[s]
+
+    total_volume: float = float(np.sum(bar_volumes))
+
+    # Buy / sell estimation via close position within high-low range
+    hl_range: npt.NDArray[np.float64] = bar_highs - bar_lows
+    buy_frac: npt.NDArray[np.float64] = np.where(hl_range > 0, (bar_closes - bar_lows) / hl_range, 0.5)
+    buy_vol: float = float(np.sum(bar_volumes * buy_frac))
+    sell_vol: float = float(np.sum(bar_volumes * (1.0 - buy_frac)))
+
+    # VWAP = Σ(typical_price × volume) / Σ(volume)
+    typical: npt.NDArray[np.float64] = (bar_highs + bar_lows + bar_closes) / 3.0
+    vwap: float = float(np.sum(typical * bar_volumes) / total_volume) if total_volume > 0 else float(bar_closes[-1])
+
+    return AggregatedBar(
+        asset=asset,
+        bar_type=bar_type,
+        start_ts=timestamps[start_idx],
+        end_ts=timestamps[end_idx] + candle_period,
+        open=Decimal(str(float(opens[start_idx]))),
+        high=Decimal(str(float(np.max(bar_highs)))),
+        low=Decimal(str(float(np.min(bar_lows)))),
+        close=Decimal(str(float(closes[end_idx]))),
+        volume=total_volume,
+        tick_count=end_idx - start_idx + 1,
+        buy_volume=buy_vol,
+        sell_volume=sell_vol,
+        vwap=Decimal(str(vwap)),
+    )
