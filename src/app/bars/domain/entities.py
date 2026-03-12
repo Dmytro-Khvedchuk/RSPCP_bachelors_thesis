@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Self
 
@@ -72,14 +72,16 @@ class AggregatedBar(BaseModel, frozen=True):
             msg = f"sell_volume must be >= 0, got {self.sell_volume}"
             raise ValueError(msg)
         total_directional: float = self.buy_volume + self.sell_volume
-        epsilon: float = 1e-9
+        epsilon: float = max(1e-9, self.volume * 1e-12)
         if total_directional > self.volume + epsilon:
             msg = (
                 f"buy_volume ({self.buy_volume}) + sell_volume ({self.sell_volume}) = "
                 f"{total_directional} must not exceed volume ({self.volume})"
             )
             raise ValueError(msg)
-        if self.start_ts >= self.end_ts:
+        start_utc: datetime = self.start_ts.astimezone(UTC)
+        end_utc: datetime = self.end_ts.astimezone(UTC)
+        if start_utc >= end_utc:
             msg = f"start_ts ({self.start_ts}) must be before end_ts ({self.end_ts})"
             raise ValueError(msg)
         return self

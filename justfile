@@ -24,6 +24,16 @@ ingest *args:
     python -m src.app.ingestion.cli {{args}}
 
 # ==============================================================================
+# 📊 Bar Aggregation
+# ==============================================================================
+# Commands for aggregating OHLCV candles into Lopez de Prado alternative bars.
+
+# Aggregate OHLCV candles into alternative bars (tick, volume, dollar, imbalance, run).
+# Usage: just bars --assets BTCUSDT --bar-types tick,volume,dollar
+bars *args:
+    python -m src.app.bars.cli {{args}}
+
+# ==============================================================================
 # 🧪 Testing
 # ==============================================================================
 # Commands for running the test suite.
