@@ -13,8 +13,8 @@ into a trained recommendation system that selects which trading signals to act o
 framework is statistically rigorous: walk-forward cross-validation, Monte Carlo permutation tests,
 and deflated Sharpe ratios guard against overfitting.
 
-**Current state:** Phase 1 complete — full Binance OHLCV ingestion pipeline with DuckDB storage,
-Clean Architecture throughout, 152 tests passing, and CI running on every PR.
+**Current state:** Phase 2 complete — López de Prado alternative bars (tick, volume, dollar,
+imbalance, run) with adaptive EMA thresholds, DuckDB storage, and 412 tests passing.
 
 ---
 
@@ -38,7 +38,7 @@ dependencies between layers. All data classes use Pydantic `BaseModel` — no ra
 | — | `system/` | Logging, DB connection, Alembic | Done |
 | 1 | `ohlcv/` | Candle entities + DuckDB repository | Done |
 | 1 | `ingestion/` | Binance fetcher + ingestion service + CLI | Done |
-| 2 | `bars/` | Lopez de Prado alternative bars | Planned |
+| 2 | `bars/` | Lopez de Prado alternative bars | Done |
 | 4 | `features/` | Feature engineering + targets | Planned |
 | 5 | `profiling/` | Statistical profiling per asset | Planned |
 | 7 | `backtest/` | Event-driven backtest engine | Planned |
@@ -57,6 +57,10 @@ dependencies between layers. All data classes use Pydantic `BaseModel` — no ra
 RSPCP_bachelors_thesis/
 ├── src/
 │   ├── app/
+│   │   ├── bars/                # Phase 2 — López de Prado alternative bars
+│   │   │   ├── domain/          # BarType, BarConfig, AggregatedBar, IBarAggregator, IBarRepository
+│   │   │   ├── application/     # Tick/Volume/Dollar/Imbalance/Run bar aggregators
+│   │   │   └── infrastructure/  # DuckDBBarRepository
 │   │   ├── ingestion/           # Phase 1 — Binance OHLCV ingestion
 │   │   │   ├── domain/          # BinanceKlineInterval, FetchRequest, exceptions, IMarketDataFetcher
 │   │   │   ├── application/     # IngestionService, IngestAssetCommand, IngestUniverseCommand
@@ -70,6 +74,7 @@ RSPCP_bachelors_thesis/
 │   │       └── database/        # ConnectionManager, DatabaseSettings, BaseRepository, Alembic
 │   └── tests/
 │       ├── conftest.py          # Shared factories: make_asset, make_date_range, make_candle
+│       ├── bars/                # 260 tests — domain, application, infrastructure, statistical
 │       └── ingestion/
 │           ├── conftest.py      # Fakes: FakeMarketDataFetcher, FakeOHLCVRepository; kline builders
 │           ├── unit/            # Unit tests for all ingestion components
@@ -210,7 +215,7 @@ database required. E2E tests wire the full CLI against a real in-memory DuckDB.
 ### Lint and type-check
 
 ```bash
-just lint           # ruff format, ruff lint, pyright, isort — same as CI
+just lint           # ruff format, ruff lint (incl. import sorting), pyright — same as CI
 ```
 
 Pre-commit hooks run the same checks automatically on every `git commit`.
@@ -220,9 +225,8 @@ Pre-commit hooks run the same checks automatically on every `git commit`.
 | Tool | Rule |
 |------|------|
 | `ruff format` | 119-char lines, double quotes |
-| `ruff lint` | ~20 rule categories including ANN, D (Google), N, UP, S, B |
+| `ruff lint` | ~20 rule categories including ANN, D (Google), N, UP, S, B, I (imports) |
 | `pyright --strict` | Full static type checking (Python 3.14) |
-| `isort` | STDLIB → THIRDPARTY → FIRSTPARTY → LOCAL |
 
 All public modules, classes, methods, and functions require Google-style docstrings.
 Every local variable must carry an explicit type annotation.
@@ -313,10 +317,88 @@ Two GitHub Actions workflows run on pull requests to `main`:
 
 | Workflow | Trigger | Jobs |
 |----------|---------|------|
-| `ci.yml` | PR to `main` | Lint & type check (ruff, pyright, isort), then full test suite |
+| `ci.yml` | PR to `main` | Lint & type check (ruff format, ruff lint, pyright), then full test suite |
 | `release.yml` | GitHub release | Auto-generates release notes grouped by PR labels |
 
 The CI pipeline mirrors the local `just lint` + `just test` commands exactly.
+
+---
+
+## Bars Module — Technical Detail
+
+Implements all nine alternative bar types from López de Prado, *Advances in Financial
+Machine Learning* (2018), §2.3, plus a reserved time bar type.
+
+### Bar types
+
+| Type | Aggregator | Sampling trigger | Algorithm |
+|------|-----------|------------------|-----------|
+| `TICK` | `TickBarAggregator` | Every N input rows | Vectorized Polars cumsum |
+| `VOLUME` | `VolumeBarAggregator` | Cumulative volume ≥ threshold | Vectorized Polars cumsum |
+| `DOLLAR` | `DollarBarAggregator` | Cumulative `close × volume` ≥ threshold | Vectorized Polars cumsum |
+| `TICK_IMBALANCE` | `ImbalanceBarAggregator` | `\|Σ direction\|` ≥ adaptive threshold | Sequential NumPy O(n) |
+| `VOLUME_IMBALANCE` | `ImbalanceBarAggregator` | `\|Σ direction × volume\|` ≥ adaptive threshold | Sequential NumPy O(n) |
+| `DOLLAR_IMBALANCE` | `ImbalanceBarAggregator` | `\|Σ direction × close × volume\|` ≥ adaptive threshold | Sequential NumPy O(n) |
+| `TICK_RUN` | `RunBarAggregator` | Max consecutive run ≥ adaptive threshold | Sequential NumPy O(n) |
+| `VOLUME_RUN` | `RunBarAggregator` | Max consecutive run volume ≥ adaptive threshold | Sequential NumPy O(n) |
+| `DOLLAR_RUN` | `RunBarAggregator` | Max consecutive run dollar value ≥ adaptive threshold | Sequential NumPy O(n) |
+
+**Direction classification:** a candle is buy (+1) if `close >= open`, sell (−1) otherwise.
+
+**Adaptive threshold:** after a configurable warmup period, the threshold is updated via
+EMA: `θ_t = α × |observed| + (1 − α) × θ_{t−1}`, where `α = 2 / (ewm_span + 1)`.
+
+### Configuration
+
+`BarConfig` is a frozen Pydantic model with SHA-256 config hash for storage deduplication:
+
+```python
+from src.app.bars.domain.value_objects import BarConfig, BarType
+
+config = BarConfig(
+    bar_type=BarType.DOLLAR_IMBALANCE,
+    threshold=500_000.0,
+    ewm_span=100,       # EMA half-life (>= 10)
+    warmup_period=50,    # Fixed threshold before EMA kicks in (<= ewm_span)
+)
+print(config.config_hash)  # 16-char hex, used as storage key
+```
+
+### Schema
+
+```sql
+CREATE TABLE aggregated_bars (
+    asset           VARCHAR        NOT NULL,
+    bar_type        VARCHAR        NOT NULL,
+    bar_config_hash VARCHAR(16)    NOT NULL,
+    start_ts        TIMESTAMPTZ    NOT NULL,
+    end_ts          TIMESTAMPTZ    NOT NULL,
+    open            DECIMAL(18, 8) NOT NULL,
+    high            DECIMAL(18, 8) NOT NULL,
+    low             DECIMAL(18, 8) NOT NULL,
+    close           DECIMAL(18, 8) NOT NULL,
+    volume          DOUBLE         NOT NULL,
+    tick_count      INTEGER        NOT NULL,
+    buy_volume      DOUBLE         NOT NULL,
+    sell_volume     DOUBLE         NOT NULL,
+    vwap            DECIMAL(18, 8) NOT NULL,
+    PRIMARY KEY (asset, bar_type, bar_config_hash, start_ts)
+);
+```
+
+### Repository API
+
+`DuckDBBarRepository` satisfies `IBarRepository` via structural subtyping:
+
+| Method | Description |
+|--------|-------------|
+| `ingest(bars, config_hash)` | Bulk `INSERT OR IGNORE`, returns rows written |
+| `query(asset, bar_type, config_hash, date_range)` | Range query ordered by `start_ts` |
+| `get_available_configs(asset)` | Distinct `(bar_type, config_hash)` pairs |
+| `get_date_range(asset, bar_type, config_hash)` | Min/max `start_ts` range |
+| `get_latest_end_ts(asset, bar_type, config_hash)` | Latest `end_ts` for incremental ingestion |
+| `count()` / `count_by_config(...)` | Row counts (total or filtered) |
+| `delete(asset, bar_type, config_hash)` | Remove bars for re-computation |
 
 ---
 
@@ -339,6 +421,18 @@ DuckDBOHLCVRepository.ingest()
       │  (INSERT OR IGNORE, composite PK deduplication)
       ▼
 data/market.duckdb   (ohlcv table)
+      │
+      ▼
+Bar Aggregators (Tick/Volume/Dollar/Imbalance/Run)
+      │  (Polars vectorized or NumPy sequential with adaptive EMA)
+      ▼
+list[AggregatedBar]   ←── domain entities (Decimal prices, VWAP, buy/sell volume)
+      │
+      ▼
+DuckDBBarRepository.ingest()
+      │  (INSERT OR IGNORE, config_hash deduplication)
+      ▼
+data/market.duckdb   (aggregated_bars table)
 ```
 
 ---
