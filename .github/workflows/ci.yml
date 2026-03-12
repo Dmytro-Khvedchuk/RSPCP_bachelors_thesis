@@ -25,14 +25,11 @@ jobs:
       - name: Ruff format check
         run: uv run ruff format --check --config=pyproject.toml .
 
-      - name: Ruff lint
+      - name: Ruff lint (includes import sorting)
         run: uv run ruff check --config=pyproject.toml .
 
       - name: Pyright
         run: uv run pyright --project=pyproject.toml
-
-      - name: isort check
-        run: uv run isort --check-only --sp=pyproject.toml .
 
   test:
     name: Tests
