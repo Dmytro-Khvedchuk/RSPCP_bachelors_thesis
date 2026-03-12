@@ -124,6 +124,9 @@ convention = "google"
     "S106",    # hardcoded fake passwords are intentional
     "PLR6301", # test methods don't use self — pytest requires instance methods
     "PLR2004", # magic values in assertions are idiomatic (assert len(x) == 2)
+    "PLR0904", # too many public methods — test classes naturally exceed 20
+    "PLR0913", # too many arguments — factory helpers and _make_bar need many params
+    "ARG001",  # unused function arguments in factories are intentional (forward compat)
     "ARG002",  # unused fixture args trigger side-effects (e.g. set_binance_env)
     "DOC501",  # test docstrings don't need Raises sections
     "PT012",   # multi-statement pytest.raises blocks are acceptable
@@ -198,6 +201,10 @@ lines_after_imports = 2
 filterwarnings = [
     "ignore::DeprecationWarning:websockets",
     "ignore::DeprecationWarning:binance",
+]
+markers = [
+    "integration: marks tests as integration tests requiring a real DuckDB instance",
+    "e2e: marks tests as end-to-end tests",
 ]
 
 [dependency-groups]
