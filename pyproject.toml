@@ -15,6 +15,7 @@ dependencies = [
     "mkdocs-material>=9.7.1",
     "mkdocstrings>=1.0.3",
     "mlflow>=3.9.0",
+    "polars>=1.38.1",
     "pre-commit>=4.5.1",
     "pydantic-settings>=2.13.1",
     "python-binance>=1.0.29",
@@ -93,7 +94,7 @@ fixable = ["ALL"]
 
 # A list of rule codes or prefixes to ignore
 ignore = [
-    "I", "ISC", "RSE102", "EM101", "TRY003", "EM102"
+    "ISC", "RSE102", "EM101", "TRY003", "EM102"
 ]
 
 # Enable Pyflakes (`F`) and a subset of the pycodestyle (`E`)  codes by default.
@@ -123,6 +124,9 @@ convention = "google"
     "S106",    # hardcoded fake passwords are intentional
     "PLR6301", # test methods don't use self — pytest requires instance methods
     "PLR2004", # magic values in assertions are idiomatic (assert len(x) == 2)
+    "PLR0904", # too many public methods — test classes naturally exceed 20
+    "PLR0913", # too many arguments — factory helpers and _make_bar need many params
+    "ARG001",  # unused function arguments in factories are intentional (forward compat)
     "ARG002",  # unused fixture args trigger side-effects (e.g. set_binance_env)
     "DOC501",  # test docstrings don't need Raises sections
     "PT012",   # multi-statement pytest.raises blocks are acceptable
@@ -132,6 +136,11 @@ convention = "google"
 "**/alembic/versions/*.py" = [
     "D103"
 ]
+
+[tool.ruff.lint.isort]
+force-sort-within-sections = true
+lines-after-imports = 2
+section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
 
 [tool.ruff.format]
 # Enable reformatting of code snippets in docstrings.
@@ -143,60 +152,14 @@ indent-style = "space"
 # Prefer double quotes over double quotes.
 quote-style = "double"
 
-[tool.isort]
-# Skip files and directories
-skip = [
-    ".bzr",
-    ".direnv",
-    ".eggs",
-    ".git",
-    ".git-rewrite",
-    ".hg",
-    ".ipynb_checkpoints",
-    ".mypy_cache",
-    ".nox",
-    ".pants.d",
-    ".pyenv",
-    ".pytest_cache",
-    ".pytype",
-    ".ruff_cache",
-    ".svn",
-    ".tox",
-    ".venv",
-    ".vscode",
-    "__pypackages__",
-    "_build",
-    "buck-out",
-    "build",
-    "dist",
-    "node_modules",
-    "site-packages",
-    "venv",
-    "tests"
-]
-
-# Line length for imports
-line_length = 119
-
-# Imports order by section name
-sections = ['FUTURE', 'STDLIB', 'THIRDPARTY', 'FIRSTPARTY', 'LOCALFOLDER']
-
-# Groupping style
-multi_line_output = 5
-
-# Sort every section in alphabetical order
-force_alphabetical_sort_within_sections = true
-
-# Sort from imports in alphabetical order
-no_inline_sort = false
-
-# Lines after imports
-lines_after_imports = 2
-
 [tool.pytest.ini_options]
 filterwarnings = [
     "ignore::DeprecationWarning:websockets",
     "ignore::DeprecationWarning:binance",
+]
+markers = [
+    "integration: marks tests as integration tests requiring a real DuckDB instance",
+    "e2e: marks tests as end-to-end tests",
 ]
 
 [dependency-groups]
