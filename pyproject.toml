@@ -32,7 +32,7 @@ dependencies = [
 
 [tool.pyright]
 include = ["src"]
-exclude = ["src/tests/*"]
+exclude = ["src/tests/*", "src/app/research/*"]
 venvPath = "."
 venv = ".venv"
 reportMissingImports = true
@@ -141,6 +141,10 @@ convention = "google"
 ]
 "**/alembic/versions/*.py" = [
     "D103"
+]
+"src/app/research/*" = [
+    "ANN",     # research code uses untyped third-party libs (pandas, statsmodels, scipy, bokeh)
+    "PLR6301", # research analyzers are stateless classes with no-self methods
 ]
 
 [tool.ruff.lint.isort]
