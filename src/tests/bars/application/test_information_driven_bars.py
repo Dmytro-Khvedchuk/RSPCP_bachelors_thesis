@@ -17,7 +17,11 @@ from src.app.bars.application.run_bars import RunBarAggregator
 from src.app.bars.domain.entities import AggregatedBar
 from src.app.bars.domain.value_objects import BarConfig, BarType
 from src.tests.bars.conftest import (
-    BTC_ASSET, make_alternating_trades_df, make_bearish_trades_df, make_bullish_trades_df, make_trades_df
+    BTC_ASSET,
+    make_alternating_trades_df,
+    make_bearish_trades_df,
+    make_bullish_trades_df,
+    make_trades_df,
 )
 
 
