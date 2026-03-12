@@ -77,7 +77,7 @@ cache-dir = "~/.cache/ruff"
 fix = true
 
 # A list of file patterns to include when linting
-include = ["*.py"]
+include = ["*.py", "*.ipynb"]
 
 # Style in which violation messages should be formatted
 output-format = "concise"
@@ -145,6 +145,15 @@ convention = "google"
 "src/app/research/*" = [
     "ANN",     # research code uses untyped third-party libs (pandas, statsmodels, scipy, bokeh)
     "PLR6301", # research analyzers are stateless classes with no-self methods
+]
+"research/*.ipynb" = [
+    "T201",    # print() is the primary output mechanism in notebooks
+    "E402",    # imports after %matplotlib inline magic are unavoidable
+    "ANN",     # notebooks don't need strict type annotations
+    "D",       # notebooks don't need docstrings
+    "DOC",     # notebooks don't need docstrings
+    "F401",    # unused imports in notebooks are common (display, show, etc.)
+    "PLR2004", # magic values in notebook analysis cells are expected
 ]
 
 [tool.ruff.lint.isort]
