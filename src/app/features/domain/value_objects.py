@@ -1,10 +1,11 @@
-"""Feature engineering domain value objects — indicator and target configuration."""
+"""Feature engineering domain value objects — indicator, target, and matrix configuration."""
 
 from __future__ import annotations
 
 from typing import Annotated, Self
 
-from pydantic import BaseModel
+import polars as pl
+from pydantic import BaseModel, ConfigDict
 from pydantic import Field as PydanticField
 from pydantic import field_validator, model_validator
 
@@ -223,3 +224,101 @@ class TargetConfig(BaseModel, frozen=True):
             msg = f"forward_vol_horizons must not contain duplicates, got {v}"
             raise ValueError(msg)
         return v
+
+
+class FeatureConfig(BaseModel, frozen=True):
+    """Composite configuration for the feature matrix build pipeline.
+
+    Bundles indicator and target settings so that downstream callers
+    (profiling, backtest, model training) pass a single config object.
+
+    Attributes:
+        indicator_config: Controls all backward-looking indicator parameters.
+        target_config: Controls all forward-looking target horizons.
+        drop_na: Whether to drop rows with any NaN in computed columns.
+        compute_targets: Set ``False`` for live inference where future data
+            does not exist.
+    """
+
+    indicator_config: IndicatorConfig = PydanticField(
+        default_factory=IndicatorConfig,  # type: ignore[reportArgumentType]  # pyright vs pydantic Annotated defaults
+    )
+    target_config: TargetConfig = PydanticField(default_factory=TargetConfig)
+    drop_na: bool = True
+    compute_targets: bool = True
+
+
+class FeatureSet(BaseModel, frozen=True):
+    """Structured output from :class:`FeatureMatrixBuilder`.
+
+    Contains the ready-to-use DataFrame together with metadata that
+    downstream consumers need (column partitioning, row-count diagnostics).
+
+    Attributes:
+        df: Full DataFrame with OHLCV + indicators + optional targets.
+        feature_columns: Sorted tuple of backward-looking indicator column names.
+        target_columns: Sorted tuple of forward-looking target column names
+            (empty when ``compute_targets=False``).
+        n_rows_raw: Row count before NaN dropping (for diagnostics).
+        n_rows_clean: Row count after NaN dropping.
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    df: pl.DataFrame
+    feature_columns: tuple[str, ...]
+    target_columns: tuple[str, ...]
+    n_rows_raw: int
+    n_rows_clean: int
+
+    @model_validator(mode="after")
+    def _clean_leq_raw(self) -> Self:
+        """Ensure clean row count does not exceed raw row count.
+
+        Returns:
+            Validated instance.
+
+        Raises:
+            ValueError: If ``n_rows_clean`` exceeds ``n_rows_raw``.
+        """
+        if self.n_rows_clean > self.n_rows_raw:
+            msg: str = f"n_rows_clean ({self.n_rows_clean}) must be <= n_rows_raw ({self.n_rows_raw})"
+            raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def _clean_matches_df(self) -> Self:
+        """Ensure clean row count matches the DataFrame length.
+
+        Returns:
+            Validated instance.
+
+        Raises:
+            ValueError: If ``n_rows_clean`` does not equal ``len(df)``.
+        """
+        df_len: int = len(self.df)
+        if self.n_rows_clean != df_len:
+            msg: str = f"n_rows_clean ({self.n_rows_clean}) must equal len(df) ({df_len})"
+            raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def _columns_exist(self) -> Self:
+        """Ensure all declared feature and target columns exist in the DataFrame.
+
+        Returns:
+            Validated instance.
+
+        Raises:
+            ValueError: If any declared column is missing from the DataFrame.
+        """
+        df_cols: set[str] = set(self.df.columns)
+        missing_features: set[str] = set(self.feature_columns) - df_cols
+        if missing_features:
+            msg: str = f"Feature columns missing from df: {sorted(missing_features)}"
+            raise ValueError(msg)
+        missing_targets: set[str] = set(self.target_columns) - df_cols
+        if missing_targets:
+            msg = f"Target columns missing from df: {sorted(missing_targets)}"
+            raise ValueError(msg)
+        return self
