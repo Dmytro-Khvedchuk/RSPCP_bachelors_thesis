@@ -1,4 +1,4 @@
-"""Feature engineering domain value objects — indicator configuration."""
+"""Feature engineering domain value objects — indicator and target configuration."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from typing import Annotated, Self
 
 from pydantic import BaseModel
 from pydantic import Field as PydanticField
-from pydantic import model_validator
+from pydantic import field_validator, model_validator
 
 
 class IndicatorConfig(BaseModel, frozen=True):
@@ -142,3 +142,84 @@ class IndicatorConfig(BaseModel, frozen=True):
             msg: str = f"clip_lower ({self.clip_lower}) must be strictly less than clip_upper ({self.clip_upper})"
             raise ValueError(msg)
         return self
+
+
+_MIN_VOL_HORIZON: int = 2
+"""Minimum forward volatility horizon — rolling std needs >= 2 observations."""
+
+
+class TargetConfig(BaseModel, frozen=True):
+    """Configuration for forward-looking regression targets.
+
+    Targets are fundamentally different from indicators: they use future
+    data (negative shifts) and must **never** appear in live inference.
+    A separate config class enforces this semantic boundary.
+
+    Default horizon rationale (for dollar bars producing ~2-3 bars/day):
+        * 1-bar  ≈ 8-12 hours
+        * 4-bar  ≈ 1-2 days
+        * 24-bar ≈ 8-12 days
+
+    Invariants:
+        * ``forward_return_horizons`` must be non-empty with all values >= 1.
+        * ``forward_vol_horizons`` must have all values >= 2
+          (rolling std requires at least 2 observations).
+        * No duplicate values in either horizon tuple.
+    """
+
+    forward_return_horizons: tuple[int, ...] = (1, 4, 24)
+    """Bar-count horizons for forward log returns."""
+
+    forward_vol_horizons: tuple[int, ...] = (4, 24)
+    """Bar-count horizons for forward realized volatility."""
+
+    close_col: str = "close"
+    """Configurable close column name."""
+
+    @field_validator("forward_return_horizons")
+    @classmethod
+    def _validate_return_horizons(cls, v: tuple[int, ...]) -> tuple[int, ...]:
+        """Validate forward return horizons are non-empty, positive, and unique.
+
+        Args:
+            v: Tuple of horizon values.
+
+        Returns:
+            Validated tuple.
+
+        Raises:
+            ValueError: If the tuple is empty, contains values < 1,
+                or has duplicates.
+        """
+        if len(v) == 0:
+            msg: str = "forward_return_horizons must be non-empty"
+            raise ValueError(msg)
+        if any(h < 1 for h in v):
+            msg = f"All forward_return_horizons must be >= 1, got {v}"
+            raise ValueError(msg)
+        if len(v) != len(set(v)):
+            msg = f"forward_return_horizons must not contain duplicates, got {v}"
+            raise ValueError(msg)
+        return v
+
+    @field_validator("forward_vol_horizons")
+    @classmethod
+    def _validate_vol_horizons(cls, v: tuple[int, ...]) -> tuple[int, ...]:
+        """Validate forward volatility horizons have values >= 2 and no duplicates.
+
+        Args:
+            v: Tuple of horizon values.
+
+        Returns:
+            Validated tuple.
+
+        Raises:
+            ValueError: If any value < 2 or there are duplicates.
+        """
+        if any(h < _MIN_VOL_HORIZON for h in v):
+            msg: str = f"All forward_vol_horizons must be >= {_MIN_VOL_HORIZON} (std needs >= 2 observations), got {v}"
+            raise ValueError(msg)
+        if len(v) != len(set(v)):
+            msg = f"forward_vol_horizons must not contain duplicates, got {v}"
+            raise ValueError(msg)
+        return v
