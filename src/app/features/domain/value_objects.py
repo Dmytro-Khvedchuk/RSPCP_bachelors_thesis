@@ -226,6 +226,123 @@ class TargetConfig(BaseModel, frozen=True):
         return v
 
 
+_DEFAULT_FEATURE_GROUPS: dict[str, tuple[str, ...]] = {
+    "returns": ("logret_",),
+    "volatility": ("rv_", "gk_vol_", "park_vol_", "atr_"),
+    "momentum": ("ema_xover_", "rsi_", "roc_"),
+    "volume": ("vol_zscore_", "amihud_", "obv_slope_"),
+    "statistical": ("ret_zscore_", "bbpctb_", "bbwidth_", "slope_", "hurst_"),
+}
+"""Default prefix-based feature group mapping for interaction tests."""
+
+
+class ValidationConfig(BaseModel, frozen=True):
+    """Configuration for Phase 4D permutation-based feature validation.
+
+    Controls MI permutation testing, BH correction, Ridge-based
+    directional-accuracy / DC-MAE evaluation, and temporal stability
+    checks.  The ``feature_groups`` mapping enables group-level
+    interaction tests (informational, does not affect per-feature
+    ``keep`` decisions).
+
+    Invariants:
+        * Each temporal-window pair must satisfy ``start < end``.
+    """
+
+    n_permutations_mi: Annotated[
+        int,
+        PydanticField(default=1000, ge=100, description="MI null-distribution shuffles"),
+    ]
+
+    n_permutations_ridge: Annotated[
+        int,
+        PydanticField(default=500, ge=50, description="Ridge null-distribution shuffles"),
+    ]
+
+    alpha: Annotated[
+        float,
+        PydanticField(default=0.05, gt=0, lt=1, description="Significance level for BH correction"),
+    ]
+
+    stability_threshold: Annotated[
+        float,
+        PydanticField(default=0.5, gt=0, le=1, description="Fraction of temporal windows required"),
+    ]
+
+    target_col: str = "fwd_logret_1"
+    """Primary regression target column."""
+
+    timestamp_col: str = "timestamp"
+    """Column used for temporal splitting."""
+
+    temporal_windows: tuple[tuple[int, int], ...] = (
+        (2020, 2021),
+        (2021, 2022),
+        (2022, 2023),
+        (2023, 2024),
+    )
+    """Year boundaries (start_inclusive, end_exclusive)."""
+
+    feature_groups: dict[str, tuple[str, ...]] = PydanticField(
+        default_factory=lambda: dict(_DEFAULT_FEATURE_GROUPS),
+    )
+    """Prefix mapping for group interaction tests."""
+
+    ridge_alpha: Annotated[
+        float,
+        PydanticField(default=1.0, gt=0, description="Ridge regularisation strength"),
+    ]
+
+    random_seed: int = 42
+    """Seed for reproducibility."""
+
+    n_permutations_stability: Annotated[
+        int,
+        PydanticField(default=500, ge=50, description="Per-window MI null-distribution shuffles"),
+    ]
+
+    min_window_rows: Annotated[
+        int,
+        PydanticField(default=100, ge=10, description="Minimum rows for a temporal window"),
+    ]
+
+    min_group_features: Annotated[
+        int,
+        PydanticField(default=2, ge=2, description="Minimum features for group interaction test"),
+    ]
+
+    redundancy_tolerance: Annotated[
+        float,
+        PydanticField(default=1.1, gt=1.0, description="R² multiplier for redundancy test"),
+    ]
+
+    min_features_kept: Annotated[
+        int,
+        PydanticField(default=5, ge=1, description="Minimum features to keep; triggers fallback"),
+    ]
+
+    min_valid_windows: Annotated[
+        int,
+        PydanticField(default=2, ge=1, description="Minimum temporal windows for stability test"),
+    ]
+
+    @model_validator(mode="after")
+    def _windows_ordered(self) -> Self:
+        """Ensure each temporal window has start < end.
+
+        Returns:
+            Validated instance.
+
+        Raises:
+            ValueError: If any window has ``start >= end``.
+        """
+        for start, end in self.temporal_windows:
+            if start >= end:
+                msg: str = f"Temporal window start ({start}) must be < end ({end})"
+                raise ValueError(msg)
+        return self
+
+
 class FeatureConfig(BaseModel, frozen=True):
     """Composite configuration for the feature matrix build pipeline.
 
