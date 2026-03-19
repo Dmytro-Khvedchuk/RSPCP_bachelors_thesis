@@ -32,6 +32,50 @@ _EPS: Final[float] = 1e-12
 # ===================================================================
 
 
+def block_permute(
+    target: np.ndarray[tuple[int], np.dtype[np.float64]],
+    block_size: int,
+    rng: np.random.Generator,
+) -> np.ndarray[tuple[int], np.dtype[np.float64]]:
+    """Permute an array by shuffling contiguous blocks.
+
+    Preserves within-block autocorrelation while breaking the
+    feature-target alignment.  This produces a more conservative null
+    distribution than element-wise permutation when the target has
+    serial dependence.
+
+    Args:
+        target: 1-D target array to permute.
+        block_size: Number of consecutive elements per block.
+            The last block may be shorter.
+        rng: NumPy random generator for reproducibility.
+
+    Returns:
+        A new array with blocks shuffled.  The marginal distribution
+        is preserved; only the temporal ordering changes.
+    """
+    n: int = len(target)
+    if block_size >= n:
+        return target.copy()
+
+    n_full_blocks: int = n // block_size
+    remainder: int = n % block_size
+    n_blocks: int = n_full_blocks + (1 if remainder > 0 else 0)
+
+    # Split into blocks
+    blocks: list[np.ndarray[tuple[int], np.dtype[np.float64]]] = []
+    for i in range(n_blocks):
+        start: int = i * block_size
+        end: int = min(start + block_size, n)
+        blocks.append(target[start:end])
+
+    # Shuffle block order
+    permuted_indices: np.ndarray[tuple[int], np.dtype[np.intp]] = rng.permutation(n_blocks)
+    shuffled_blocks: list[np.ndarray[tuple[int], np.dtype[np.float64]]] = [blocks[i] for i in permuted_indices]
+
+    return np.concatenate(shuffled_blocks)
+
+
 def compute_mi_score(
     feature: np.ndarray[tuple[int], np.dtype[np.float64]],
     target: np.ndarray[tuple[int], np.dtype[np.float64]],
@@ -60,14 +104,20 @@ def compute_mi_null_distribution(
     target: np.ndarray[tuple[int], np.dtype[np.float64]],
     n_permutations: int,
     random_seed: int,
+    block_size: int = 1,
 ) -> np.ndarray[tuple[int], np.dtype[np.float64]]:
-    """Build a null distribution for MI by permuting the target.
+    """Build a null distribution for MI by block-permuting the target.
+
+    When ``block_size=1`` this is equivalent to element-wise permutation.
+    Larger block sizes preserve within-block autocorrelation for a more
+    conservative null.
 
     Args:
         feature: 1-D feature array.
         target: 1-D target array.
         n_permutations: Number of shuffles.
         random_seed: Base random seed.
+        block_size: Block size for block permutation.
 
     Returns:
         Array of MI scores under the null hypothesis.
@@ -75,7 +125,7 @@ def compute_mi_null_distribution(
     rng: np.random.Generator = np.random.default_rng(random_seed)
     null_mis: np.ndarray[tuple[int], np.dtype[np.float64]] = np.empty(n_permutations, dtype=np.float64)
     for i in range(n_permutations):
-        shuffled_target: np.ndarray[tuple[int], np.dtype[np.float64]] = rng.permutation(target)
+        shuffled_target: np.ndarray[tuple[int], np.dtype[np.float64]] = block_permute(target, block_size, rng)
         null_mis[i] = compute_mi_score(feature, shuffled_target, random_seed=random_seed + i + 1)
     return null_mis
 
@@ -164,7 +214,7 @@ def evaluate_single_feature_ridge(
     feature: np.ndarray[tuple[int], np.dtype[np.float64]],
     target: np.ndarray[tuple[int], np.dtype[np.float64]],
     ridge_alpha: float,
-    train_fraction: float = 0.7,
+    train_fraction: float,
 ) -> tuple[float, float]:
     """Fit single-feature Ridge on temporal train split, evaluate on test split.
 
@@ -194,12 +244,14 @@ def compute_ridge_null_distribution(  # noqa: PLR0913, PLR0917
     n_permutations: int,
     ridge_alpha: float,
     random_seed: int,
-    train_fraction: float = 0.7,
-) -> tuple[np.ndarray[tuple[int], np.dtype[np.float64]], np.ndarray[tuple[int], np.dtype[np.float64]]]:
-    """Build null distributions for DA and DC-MAE by permuting the target.
+    train_fraction: float,
+    block_size: int = 1,
+) -> np.ndarray[tuple[int], np.dtype[np.float64]]:
+    """Build a null distribution for DA by block-permuting the target.
 
-    Permutation shuffles the full target BEFORE the temporal split,
-    which is correct — both observed and null use the same split boundary.
+    Block permutation preserves within-block autocorrelation while
+    breaking feature-target alignment.  DC-MAE is no longer computed
+    in the null loop (it is a simple observed diagnostic instead).
 
     Args:
         feature: 1-D feature array.
@@ -208,21 +260,19 @@ def compute_ridge_null_distribution(  # noqa: PLR0913, PLR0917
         ridge_alpha: Ridge regularisation parameter.
         random_seed: Base random seed.
         train_fraction: Fraction of data for training (forwarded to Ridge).
+        block_size: Block size for block permutation.
 
     Returns:
-        Tuple of (DA null array, DC-MAE null array).
+        DA null array (1-D, length ``n_permutations``).
     """
     rng: np.random.Generator = np.random.default_rng(random_seed)
     null_da: np.ndarray[tuple[int], np.dtype[np.float64]] = np.empty(n_permutations, dtype=np.float64)
-    null_dc_mae: np.ndarray[tuple[int], np.dtype[np.float64]] = np.empty(n_permutations, dtype=np.float64)
     for i in range(n_permutations):
-        shuffled_target: np.ndarray[tuple[int], np.dtype[np.float64]] = rng.permutation(target)
+        shuffled_target: np.ndarray[tuple[int], np.dtype[np.float64]] = block_permute(target, block_size, rng)
         da_i: float
-        dc_i: float
-        da_i, dc_i = evaluate_single_feature_ridge(feature, shuffled_target, ridge_alpha, train_fraction)
+        da_i, _ = evaluate_single_feature_ridge(feature, shuffled_target, ridge_alpha, train_fraction)
         null_da[i] = da_i
-        null_dc_mae[i] = dc_i
-    return null_da, null_dc_mae
+    return null_da
 
 
 def classify_feature_group(feature_name: str, feature_groups: dict[str, tuple[str, ...]]) -> str:
@@ -545,6 +595,7 @@ class FeatureValidator:
                 target,
                 config.n_permutations_mi,
                 seed_j,
+                block_size=config.permutation_block_size,
             )
             p_val: float = compute_empirical_pvalue(observed_mi, null_dist)
             mi_scores.append(observed_mi)
@@ -590,21 +641,23 @@ class FeatureValidator:
             feat_col: np.ndarray[tuple[int], np.dtype[np.float64]] = feature_matrix[:, j]
             da: float
             dc: float
-            da, dc = evaluate_single_feature_ridge(feat_col, target, config.ridge_alpha)
+            da, dc = evaluate_single_feature_ridge(
+                feat_col,
+                target,
+                config.ridge_alpha,
+                config.ridge_train_ratio,
+            )
 
-            null_da: np.ndarray[tuple[int], np.dtype[np.float64]]
-            null_dc: np.ndarray[tuple[int], np.dtype[np.float64]]
-            null_da, null_dc = compute_ridge_null_distribution(
+            null_da: np.ndarray[tuple[int], np.dtype[np.float64]] = compute_ridge_null_distribution(
                 feat_col,
                 target,
                 config.n_permutations_ridge,
                 config.ridge_alpha,
                 seed_j,
+                train_fraction=config.ridge_train_ratio,
+                block_size=config.permutation_block_size,
             )
             da_null_mean: float = float(np.mean(null_da))
-            dc_mae_null_mean: float = (
-                float(np.mean(null_dc[np.isfinite(null_dc)])) if np.any(np.isfinite(null_dc)) else float("inf")
-            )
             da_pval: float = compute_empirical_pvalue(da, null_da)
 
             da_scores.append(da)
@@ -612,7 +665,8 @@ class FeatureValidator:
             da_pvalues.append(da_pval)
             da_beats.append(da_pval < config.alpha)
             dc_maes.append(dc)
-            dc_mae_null_means.append(dc_mae_null_mean)
+            # DC-MAE is now a simple observed diagnostic — no null distribution
+            dc_mae_null_means.append(float("nan"))
 
         n_beats: int = sum(da_beats)
         logger.info("Ridge test done: {}/{} features beat DA null", n_beats, n_features)
@@ -680,6 +734,7 @@ class FeatureValidator:
                     window_target,
                     config.n_permutations_stability,
                     seed_wf,
+                    block_size=config.permutation_block_size,
                 )
                 p_val: float = compute_empirical_pvalue(observed_mi, null_dist)
                 if p_val < config.alpha:

@@ -293,6 +293,16 @@ class ValidationConfig(BaseModel, frozen=True):
         PydanticField(default=1.0, gt=0, description="Ridge regularisation strength"),
     ]
 
+    ridge_train_ratio: Annotated[
+        float,
+        PydanticField(default=0.7, gt=0, lt=1, description="Temporal train fraction for Ridge evaluation"),
+    ]
+
+    permutation_block_size: Annotated[
+        int,
+        PydanticField(default=50, ge=1, description="Block size for block-permutation null distributions"),
+    ]
+
     random_seed: int = 42
     """Seed for reproducibility."""
 

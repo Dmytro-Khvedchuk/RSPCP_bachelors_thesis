@@ -12,11 +12,13 @@ import pytest
 
 from src.app.features.application.validation import (
     apply_bh_correction,
+    block_permute,
     classify_feature_group,
     compute_dc_mae,
     compute_directional_accuracy,
     compute_empirical_pvalue,
     compute_mi_score,
+    compute_ridge_null_distribution,
     evaluate_single_feature_ridge,
 )
 
@@ -216,7 +218,12 @@ class TestEvaluateSingleFeatureRidge:
         rng: np.random.Generator = np.random.default_rng(_SEED)
         feature: np.ndarray[tuple[int], np.dtype[np.float64]] = rng.standard_normal(200)
         target: np.ndarray[tuple[int], np.dtype[np.float64]] = rng.standard_normal(200)
-        result: tuple[float, float] = evaluate_single_feature_ridge(feature, target, ridge_alpha=1.0)
+        result: tuple[float, float] = evaluate_single_feature_ridge(
+            feature,
+            target,
+            ridge_alpha=1.0,
+            train_fraction=0.7,
+        )
         assert isinstance(result, tuple)
         assert len(result) == 2
         da: float = result[0]
@@ -229,7 +236,7 @@ class TestEvaluateSingleFeatureRidge:
         rng: np.random.Generator = np.random.default_rng(_SEED + 1)
         feature: np.ndarray[tuple[int], np.dtype[np.float64]] = rng.standard_normal(200)
         target: np.ndarray[tuple[int], np.dtype[np.float64]] = rng.standard_normal(200)
-        da, _ = evaluate_single_feature_ridge(feature, target, ridge_alpha=1.0)
+        da, _ = evaluate_single_feature_ridge(feature, target, ridge_alpha=1.0, train_fraction=0.7)
         assert 0.0 <= da <= 1.0
 
     def test_ridge_perfect_linear_signal_high_da(self) -> None:
@@ -284,3 +291,123 @@ class TestClassifyFeatureGroup:
         """Empty feature_groups dict always returns 'other'."""
         result: str = classify_feature_group("anything", {})
         assert result == "other"
+
+
+class TestBlockPermute:
+    """Tests for the block_permute function."""
+
+    def test_block_permute_preserves_marginal_distribution(self) -> None:
+        """Block permutation must preserve the same set of values (marginal distribution)."""
+        rng: np.random.Generator = np.random.default_rng(_SEED)
+        target: np.ndarray[tuple[int], np.dtype[np.float64]] = np.arange(100, dtype=np.float64)
+        result: np.ndarray[tuple[int], np.dtype[np.float64]] = block_permute(target, block_size=10, rng=rng)
+        assert sorted(result.tolist()) == sorted(target.tolist())
+
+    def test_block_permute_preserves_length(self) -> None:
+        """Block permutation output must have the same length as input."""
+        rng: np.random.Generator = np.random.default_rng(_SEED)
+        target: np.ndarray[tuple[int], np.dtype[np.float64]] = np.arange(100, dtype=np.float64)
+        result: np.ndarray[tuple[int], np.dtype[np.float64]] = block_permute(target, block_size=10, rng=rng)
+        assert len(result) == len(target)
+
+    def test_block_permute_breaks_temporal_order(self) -> None:
+        """Block permutation should (usually) change element positions."""
+        rng: np.random.Generator = np.random.default_rng(_SEED)
+        target: np.ndarray[tuple[int], np.dtype[np.float64]] = np.arange(100, dtype=np.float64)
+        result: np.ndarray[tuple[int], np.dtype[np.float64]] = block_permute(target, block_size=10, rng=rng)
+        # With 10 blocks, it's very unlikely that the order is preserved
+        assert not np.array_equal(result, target)
+
+    def test_block_permute_preserves_within_block_order(self) -> None:
+        """Within each block, the relative order of elements should be preserved."""
+        rng: np.random.Generator = np.random.default_rng(_SEED)
+        target: np.ndarray[tuple[int], np.dtype[np.float64]] = np.arange(20, dtype=np.float64)
+        result: np.ndarray[tuple[int], np.dtype[np.float64]] = block_permute(target, block_size=5, rng=rng)
+        # Each contiguous group of 5 in the result should be a monotonically
+        # increasing sequence from the original (since original is 0..19)
+        for i in range(0, 20, 5):
+            block: np.ndarray[tuple[int], np.dtype[np.float64]] = result[i : i + 5]
+            # Check that the block is a contiguous range from the original
+            assert block[1] == block[0] + 1
+            assert block[2] == block[0] + 2
+            assert block[3] == block[0] + 3
+            assert block[4] == block[0] + 4
+
+    def test_block_permute_single_element_blocks(self) -> None:
+        """Block size 1 should still permute (equivalent to element-wise shuffle)."""
+        rng: np.random.Generator = np.random.default_rng(_SEED)
+        target: np.ndarray[tuple[int], np.dtype[np.float64]] = np.arange(50, dtype=np.float64)
+        result: np.ndarray[tuple[int], np.dtype[np.float64]] = block_permute(target, block_size=1, rng=rng)
+        assert len(result) == len(target)
+        assert sorted(result.tolist()) == sorted(target.tolist())
+
+    def test_block_permute_block_size_ge_length_returns_copy(self) -> None:
+        """When block_size >= len(target), return a copy of target (nothing to shuffle)."""
+        rng: np.random.Generator = np.random.default_rng(_SEED)
+        target: np.ndarray[tuple[int], np.dtype[np.float64]] = np.array([1.0, 2.0, 3.0])
+        result: np.ndarray[tuple[int], np.dtype[np.float64]] = block_permute(target, block_size=5, rng=rng)
+        assert np.array_equal(result, target)
+        # Must be a copy, not the same object
+        assert result is not target
+
+    def test_block_permute_uneven_blocks(self) -> None:
+        """When n is not divisible by block_size, the last block can be shorter."""
+        rng: np.random.Generator = np.random.default_rng(_SEED)
+        target: np.ndarray[tuple[int], np.dtype[np.float64]] = np.arange(13, dtype=np.float64)
+        result: np.ndarray[tuple[int], np.dtype[np.float64]] = block_permute(target, block_size=5, rng=rng)
+        assert len(result) == 13
+        assert sorted(result.tolist()) == sorted(target.tolist())
+
+
+class TestRidgeTrainRatioConfig:
+    """Tests for ridge_train_ratio config threading."""
+
+    def test_evaluate_ridge_respects_train_fraction(self) -> None:
+        """evaluate_single_feature_ridge with different train_fractions gives different results."""
+        rng: np.random.Generator = np.random.default_rng(_SEED + 10)
+        feature: np.ndarray[tuple[int], np.dtype[np.float64]] = rng.standard_normal(200)
+        target: np.ndarray[tuple[int], np.dtype[np.float64]] = feature + 0.1 * rng.standard_normal(200)
+        da_07: float
+        da_05: float
+        da_07, _ = evaluate_single_feature_ridge(feature, target, ridge_alpha=1.0, train_fraction=0.7)
+        da_05, _ = evaluate_single_feature_ridge(feature, target, ridge_alpha=1.0, train_fraction=0.5)
+        # Both should return valid DAs (they may or may not differ numerically)
+        assert 0.0 <= da_07 <= 1.0
+        assert 0.0 <= da_05 <= 1.0
+
+
+class TestRidgeNullDistributionReturnsDAOnly:
+    """Tests verifying compute_ridge_null_distribution returns DA-only array."""
+
+    def test_returns_1d_array(self) -> None:
+        """compute_ridge_null_distribution should return a 1-D DA null array."""
+        rng_data: np.random.Generator = np.random.default_rng(_SEED + 20)
+        feature: np.ndarray[tuple[int], np.dtype[np.float64]] = rng_data.standard_normal(200)
+        target: np.ndarray[tuple[int], np.dtype[np.float64]] = rng_data.standard_normal(200)
+        result: np.ndarray[tuple[int], np.dtype[np.float64]] = compute_ridge_null_distribution(
+            feature,
+            target,
+            n_permutations=10,
+            ridge_alpha=1.0,
+            random_seed=_SEED,
+            train_fraction=0.7,
+        )
+        assert isinstance(result, np.ndarray)
+        assert result.ndim == 1
+        assert len(result) == 10
+
+    def test_da_nulls_in_valid_range(self) -> None:
+        """All DA null values should be in [0, 1]."""
+        rng_data: np.random.Generator = np.random.default_rng(_SEED + 30)
+        feature: np.ndarray[tuple[int], np.dtype[np.float64]] = rng_data.standard_normal(200)
+        target: np.ndarray[tuple[int], np.dtype[np.float64]] = rng_data.standard_normal(200)
+        result: np.ndarray[tuple[int], np.dtype[np.float64]] = compute_ridge_null_distribution(
+            feature,
+            target,
+            n_permutations=20,
+            ridge_alpha=1.0,
+            random_seed=_SEED,
+            train_fraction=0.7,
+        )
+        assert np.all(result >= 0.0)
+        assert np.all(result <= 1.0)

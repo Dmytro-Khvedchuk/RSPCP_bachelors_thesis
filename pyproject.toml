@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
     "alembic>=1.18.4",
+    "arch>=8.0.0",
     "bokeh>=3.9.0",
     "duckdb>=1.4.4",
     "duckdb-engine>=0.17.0",

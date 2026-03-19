@@ -162,6 +162,13 @@ class TestFeatureValidationResult:
         result: FeatureValidationResult = _make_validation_result(group="volatility")
         assert result.group == "volatility"
 
+    def test_dc_mae_null_mean_accepts_nan(self) -> None:
+        """dc_mae_null_mean should accept NaN (DC-MAE is now an observed diagnostic only)."""
+        import math
+
+        result: FeatureValidationResult = _make_validation_result(dc_mae_null_mean=float("nan"))
+        assert math.isnan(result.dc_mae_null_mean)
+
 
 # ---------------------------------------------------------------------------
 # InteractionTestResult tests
