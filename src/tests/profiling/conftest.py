@@ -2,7 +2,7 @@
 
 Provides synthetic data generators for stationarity testing,
 distribution analysis, serial dependence analysis, volatility
-modeling, and reusable configuration fixtures.
+modeling, predictability assessment, and reusable configuration fixtures.
 """
 
 from __future__ import annotations
@@ -370,3 +370,78 @@ def make_nonlinear_returns(
         else:
             data[i] = -0.5 * data[i - 1] + noise[i]
     return pd.Series(data, dtype=np.float64, name="tar_return")
+
+
+# ---------------------------------------------------------------------------
+# Predictability assessment helpers
+# ---------------------------------------------------------------------------
+
+
+def make_deterministic_returns(
+    n: int = 2000,
+    seed: int = 42,
+) -> pd.Series:  # type: ignore[type-arg]
+    """Generate highly predictable (low entropy) returns.
+
+    Alternating positive/negative pattern with small noise.
+
+    Args:
+        n: Number of return observations.
+        seed: Random seed for reproducibility.
+
+    Returns:
+        Pandas Series of near-deterministic alternating returns.
+    """
+    rng = np.random.default_rng(seed)
+    pattern = np.array([0.01, -0.01] * (n // 2), dtype=np.float64)
+    noise = rng.normal(0, 0.001, size=n)
+    return pd.Series(pattern + noise[:n], dtype=np.float64, name="deterministic_return")
+
+
+def make_random_walk_predictability_returns(
+    n: int = 2000,
+    seed: int = 42,
+) -> pd.Series:  # type: ignore[type-arg]
+    """Generate random walk returns (high entropy, unpredictable).
+
+    Args:
+        n: Number of return observations.
+        seed: Random seed for reproducibility.
+
+    Returns:
+        Pandas Series of i.i.d. Normal returns simulating random walk increments.
+    """
+    rng = np.random.default_rng(seed)
+    data = rng.normal(loc=0.0, scale=0.01, size=n)
+    return pd.Series(data, dtype=np.float64, name="rw_return")
+
+
+def make_predictable_features(
+    returns: np.ndarray,  # type: ignore[type-arg]
+    n_informative: int = 5,
+    n_noise: int = 10,
+    seed: int = 42,
+) -> np.ndarray:  # type: ignore[type-arg]
+    """Generate a feature matrix with some informative and some noise features.
+
+    Informative features are lagged copies of returns plus noise.
+    Noise features are pure random Gaussian.
+
+    Args:
+        returns: 1-D array of return observations.
+        n_informative: Number of informative (lagged return) features.
+        n_noise: Number of pure noise features.
+        seed: Random seed for reproducibility.
+
+    Returns:
+        Feature matrix of shape ``(n, n_informative + n_noise)``.
+    """
+    rng = np.random.default_rng(seed)
+    n = len(returns)
+    features = np.zeros((n, n_informative + n_noise), dtype=np.float64)
+    for i in range(n_informative):
+        lag = i + 1
+        features[lag:, i] = returns[:-lag] + rng.normal(0, 0.002, size=n - lag)
+    for i in range(n_noise):
+        features[:, n_informative + i] = rng.normal(0, 0.01, size=n)
+    return features
