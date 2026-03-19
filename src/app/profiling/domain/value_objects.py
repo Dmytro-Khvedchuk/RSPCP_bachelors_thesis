@@ -1,4 +1,4 @@
-"""Profiling domain value objects -- data partitions, sample tiers, and stationarity results."""
+"""Profiling domain value objects -- data partitions, sample tiers, distribution profiles, and stationarity results."""
 
 from __future__ import annotations
 
@@ -217,6 +217,87 @@ class TierClassifier:
         if n_samples >= config.tier_b_threshold:
             return SampleTier.B
         return SampleTier.C
+
+
+class DistributionConfig(BaseModel, frozen=True):
+    """Configuration for return distribution analysis.
+
+    Attributes:
+        jb_alpha: Significance level for the Jarque-Bera normality test.
+        price_col: Name of the price column used to compute log returns.
+        min_samples_jb: Minimum number of samples required for Jarque-Bera test.
+        min_samples_fit: Minimum number of samples required for MLE fitting.
+    """
+
+    jb_alpha: Annotated[float, PydanticField(gt=0, lt=1)] = 0.05
+    price_col: str = "close"
+    min_samples_jb: Annotated[int, PydanticField(ge=3)] = 3
+    min_samples_fit: Annotated[int, PydanticField(ge=10)] = 30
+
+
+class DistributionProfile(BaseModel, frozen=True):
+    """Per-asset, per-bar-type return distribution profile.
+
+    Contains Jarque-Bera normality test results, effect sizes,
+    Student-t MLE fit parameters, AIC/BIC model comparison,
+    and KS distance measure. Tier-gated: Tier C gets descriptive
+    stats only (Student-t fields are None).
+
+    Attributes:
+        asset: Trading pair symbol (e.g. ``"BTCUSDT"``).
+        bar_type: Bar aggregation type (e.g. ``"dollar"``).
+        tier: Sample-size tier that controls analysis depth.
+        n_observations: Number of return observations analysed.
+        mean_return: Mean of log returns.
+        std_return: Standard deviation of log returns.
+        skewness: Fisher skewness of log returns.
+        excess_kurtosis: Fisher excess kurtosis of log returns.
+        jb_stat: Jarque-Bera test statistic.
+        jb_pvalue: Jarque-Bera p-value.
+        is_normal: Whether normality was NOT rejected at the configured alpha.
+        student_t_nu: Fitted Student-t degrees of freedom (Tier A/B only).
+        student_t_loc: Fitted Student-t location parameter (Tier A/B only).
+        student_t_scale: Fitted Student-t scale parameter (Tier A/B only).
+        aic_normal: AIC for the fitted Normal distribution (Tier A/B only).
+        aic_student_t: AIC for the fitted Student-t distribution (Tier A/B only).
+        bic_normal: BIC for the fitted Normal distribution (Tier A/B only).
+        bic_student_t: BIC for the fitted Student-t distribution (Tier A/B only).
+        best_fit: Best-fitting distribution by AIC (Tier A/B only).
+        ks_statistic: KS D_n statistic vs fitted Normal (Tier A/B only).
+    """
+
+    asset: str
+    bar_type: str
+    tier: SampleTier
+
+    # Sample info
+    n_observations: Annotated[int, PydanticField(ge=0)]
+
+    # Descriptive statistics (all tiers)
+    mean_return: float
+    std_return: Annotated[float, PydanticField(ge=0)]
+    skewness: float
+    excess_kurtosis: float
+
+    # Jarque-Bera normality test (all tiers)
+    jb_stat: Annotated[float, PydanticField(ge=0)]
+    jb_pvalue: Annotated[float, PydanticField(ge=0, le=1)]
+    is_normal: bool
+
+    # Student-t MLE fit (Tier A/B only -- None for Tier C)
+    student_t_nu: float | None = None
+    student_t_loc: float | None = None
+    student_t_scale: float | None = None
+
+    # Model comparison (Tier A/B only -- None for Tier C)
+    aic_normal: float | None = None
+    aic_student_t: float | None = None
+    bic_normal: float | None = None
+    bic_student_t: float | None = None
+    best_fit: str | None = None
+
+    # KS distance measure (Tier A/B only -- None for Tier C)
+    ks_statistic: float | None = None
 
 
 class StationarityTestResult(BaseModel, frozen=True):
