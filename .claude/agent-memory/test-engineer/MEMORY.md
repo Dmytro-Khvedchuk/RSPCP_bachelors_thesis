@@ -117,3 +117,17 @@
 - Pre-commit pyright hook (v1.1.408) has a pre-existing failure on `src/app/system/database/repository.py` (PEP 695 syntax) unrelated to tests — confirmed present before Phase 4E changes
 - `compute_all_indicators` with `hurst_window=40`, `slope_window=5`, `obv_slope_window=5` works well for 150-row test DataFrames
 - Leakage tests: use `np.corrcoef` with `strict=False` NaN handling (some features have zero variance after warmup, causing NaN correlations that should be skipped)
+
+## Files Added (Phase 5 Tests — profiling module, 861 total tests)
+- Added to `src/tests/profiling/conftest.py`: `make_random_walk()` (price-level cumsum, distinct from `make_random_walk_returns`) and `make_profiling_config()` (fast defaults factory)
+- Added to `src/tests/profiling/test_volatility.py`: `TestGARCHParameterRecovery` — `test_garch_recovers_alpha_beta_within_20_percent` + `test_constant_series_garch_fits_none_or_near_zero`
+- Added to `src/tests/profiling/test_stationarity.py`: `TestADFAndKPSSPValues` — 4 tests checking individual ADF and KPSS p-value fields on random walk vs white noise
+- Added to `src/tests/profiling/test_predictability.py`: `TestPermutationEntropyNearZero` (sine wave H_norm at d=5,6) + `TestEffectiveSampleSizeAR1` (phi=0.5 N_eff in [0.1, 0.7])
+
+## Profiling Module Critical Gotchas
+- `make_random_walk` (conftest) returns PRICE LEVELS (cumsum); `make_random_walk_returns` returns i.i.d. white noise (first differences) — do not confuse them
+- `make_profiling_config()` reduces Ljung-Box lags, GARCH distributions, PE dimensions, and min_samples_garch for fast test execution
+- Permutation entropy of a sine wave at d=3 is ~0.45 (NOT near 0) — only at d=5,6 does it drop below 0.20; use pe_dimensions=(5,6) for near-zero tests
+- `N806` (uppercase variable names) fires in test methods even for named constants — use lowercase names (e.g. `tolerance`, `h_norm_max`, not `TOLERANCE`)
+- GARCH on constant (all-zero) series: the optimizer either fails (garch_fits is None) OR converges to degenerate values — test must handle both cases
+- KPSS p-value is bounded/clamped to [0, 1] in the screener; random walk reliably gives kpss_pvalue < 0.05 (n=1000, seed=42 confirmed)

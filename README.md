@@ -13,9 +13,11 @@ into a trained recommendation system that selects which trading signals to act o
 framework is statistically rigorous: walk-forward cross-validation, Monte Carlo permutation tests,
 and deflated Sharpe ratios guard against overfitting.
 
-**Current state:** Phases 1–4 complete — OHLCV ingestion, López de Prado alternative bars,
-RC1 research checkpoint, and full feature engineering pipeline (23 indicators, regression
-targets, feature matrix builder, and permutation-test validation) with 607 tests passing.
+**Current state:** Phases 1–5 complete — OHLCV ingestion, López de Prado alternative bars,
+RC1 research checkpoint, full feature engineering pipeline (23 indicators, regression
+targets, feature matrix builder, and permutation-test validation), and statistical profiling
+(distribution, serial dependence, volatility modeling, predictability assessment) with 795
+tests passing.
 
 ---
 
@@ -42,7 +44,7 @@ dependencies between layers. All data classes use Pydantic `BaseModel` — no ra
 | 2 | `bars/` | Lopez de Prado alternative bars | Done |
 | 3 | `research/` | RC1 analysis (coverage, returns, ACF, bar comparison, charts) | Done |
 | 4 | `features/` | Technical indicators, regression targets, matrix builder, validation | Done |
-| 5 | `profiling/` | Statistical profiling per asset | Planned |
+| 5 | `profiling/` | Statistical profiling per asset | Done |
 | 7 | `backtest/` | Event-driven backtest engine | Planned |
 | 8 | `strategy/` | Momentum, DRTS, mean-reversion strategies | Planned |
 | 9–10 | `forecasting/` | Classification (SIDE) + regression (SIZE) | Planned |
@@ -67,6 +69,12 @@ RSPCP_bachelors_thesis/
 │   │   │   ├── domain/          # IndicatorConfig, TargetConfig, FeatureConfig, FeatureSet, ValidationConfig
 │   │   │   │                    # FeatureValidationResult, InteractionTestResult, ValidationReport
 │   │   │   └── application/     # indicators.py, targets.py, feature_matrix.py, validation.py
+│   │   ├── profiling/           # Phase 5 — statistical profiling per asset
+│   │   │   ├── domain/          # DataPartition, SampleTier, TierConfig, all profile value objects
+│   │   │   │                    # DistributionProfile, AutocorrelationProfile, VolatilityProfile
+│   │   │   │                    # PredictabilityProfile, StationarityReport, StatisticalReport
+│   │   │   └── application/     # distribution.py, serial_dependence.py, volatility.py,
+│   │   │                        # predictability.py, stationarity.py, services.py
 │   │   ├── ingestion/           # Phase 1 — Binance OHLCV ingestion
 │   │   │   ├── domain/          # BinanceKlineInterval, FetchRequest, exceptions, IMarketDataFetcher
 │   │   │   ├── application/     # IngestionService, IngestAssetCommand, IngestUniverseCommand
@@ -83,6 +91,8 @@ RSPCP_bachelors_thesis/
 │       ├── conftest.py          # Shared factories: make_asset, make_date_range, make_candle
 │       ├── bars/                # 260 tests — domain, application, infrastructure, statistical
 │       ├── features/            # 195 tests — indicators, targets, matrix, validation, leakage
+│       ├── profiling/           # 188 tests — distribution, serial dependence, volatility,
+│       │                        # predictability, stationarity, service orchestration
 │       └── ingestion/
 │           ├── conftest.py      # Fakes: FakeMarketDataFetcher, FakeOHLCVRepository; kline builders
 │           ├── unit/            # Unit tests for all ingestion components
@@ -392,6 +402,46 @@ rate across all features simultaneously. A fallback ensures at least `min_featur
 
 ---
 
+## Profiling Module — Technical Detail
+
+Implements Phase 5 statistical profiling: per-asset, per-bar-type characterization of return
+dynamics to validate bar-type suitability before model training (RC2 checkpoint).
+
+### Tier classification
+
+Every `(asset, bar_type)` combination is classified into a sample-size tier before any test
+is run. The tier gates which analyses are available:
+
+| Tier | Samples | Analyses available |
+|------|---------|--------------------|
+| A | > 2,000 | All: distribution, serial dependence, GARCH, GJR-GARCH, BDS, predictability, SNR |
+| B | 500–2,000 | Distribution, serial dependence (VR ≤ 7-day horizon), GARCH, regime labeling, PE, MDE |
+| C | < 500 | Descriptive stats, JB test, ACF/PACF, Ljung-Box, regime labeling |
+
+### Analysis batteries
+
+| Phase | Analyzer | Key tests |
+|-------|----------|-----------|
+| 5pre | `StationarityScreener` | Joint ADF + KPSS → stationary / trend_stationary / unit_root / inconclusive |
+| 5A | `DistributionAnalyzer` | Jarque-Bera, Student-t MLE, AIC/BIC comparison, KS distance |
+| 5B | `SerialDependenceAnalyzer` | Multi-lag Ljung-Box, Lo-MacKinlay VR (robust Z2), Chow-Denning, Granger causality |
+| 5C | `VolatilityAnalyzer` | GARCH(1,1) with Normal/t/Skewed-t, Engle-Ng sign bias, GJR-GARCH, ARCH-LM, BDS |
+| 5D | `PredictabilityAnalyzer` | Permutation entropy (H_norm), Jensen-Shannon complexity, Kish N_eff, MDE DA, SNR R² |
+| 5E | `ProfilingService` | Orchestration + Benjamini-Hochberg FDR correction across all inferential tests |
+
+All analyzers are stateless (no constructor dependencies). The `ProfilingService` orchestrator
+injects `DataLoader` and dispatches to each analyzer, collecting results into an immutable
+`StatisticalReport`.
+
+### FDR correction
+
+P-values from Ljung-Box (returns and squared), variance ratio, Granger causality, BDS,
+ARCH-LM, and sign bias joint F-test are pooled across all `(asset, bar_type)` combinations
+and corrected simultaneously via Benjamini-Hochberg at `fdr_alpha=0.05`. Each `CorrectedPValue`
+object stores both the raw and corrected p-value with pre/post-correction significance flags.
+
+---
+
 ## CI/CD
 
 Two GitHub Actions workflows run on pull requests to `main`:
@@ -523,6 +573,12 @@ FeatureValidator.validate(feature_set, ValidationConfig)
       │  (MI permutation, Ridge DA/DC-MAE, temporal stability, BH correction)
       ▼
 ValidationReport   ←── kept_feature_names, per-feature keep/drop decisions
+      │
+      ▼
+ProfilingService.profile_all(assets, config, partition)
+      │  (tier classification, 5 analyzers per asset-bar pair, BH FDR correction)
+      ▼
+StatisticalReport   ←── AssetBarProfile per (asset, bar_type), corrected p-values
 ```
 
 ---
@@ -533,7 +589,7 @@ The full plan is in [`IMPLEMENTATION_PLAN.md`](./IMPLEMENTATION_PLAN.md). Summar
 
 **Block I — Data & Infrastructure (Phases 1–8)**
 
-Ingestion → alternative bars → RC1 → features ✓ → profiling → RC2 → backtest engine → strategies
+Ingestion → alternative bars → RC1 → features → profiling ✓ → RC2 → backtest engine → strategies
 
 **Block II — Models & Recommendation (Phases 9–14)**
 
