@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Annotated, Self
 
@@ -491,3 +491,208 @@ class AutocorrelationProfile(BaseModel, frozen=True):
 
     # Granger causality (Tier A only -- None for Tier B/C)
     granger_results: tuple[GrangerResult, ...] | None = None
+
+
+# ---------------------------------------------------------------------------
+# Phase 5C: Volatility modeling value objects
+# ---------------------------------------------------------------------------
+
+
+class VolatilityRegime(Enum):
+    """Volatility regime classification label.
+
+    Attributes:
+        LOW: Realized volatility below the low quantile threshold.
+        NORMAL: Realized volatility between the low and high quantile thresholds.
+        HIGH: Realized volatility above the high quantile threshold.
+    """
+
+    LOW = "LOW"
+    NORMAL = "NORMAL"
+    HIGH = "HIGH"
+
+
+class VolatilityConfig(BaseModel, frozen=True):
+    """Configuration for GARCH volatility modeling and regime classification.
+
+    Attributes:
+        garch_p: GARCH lag order for the conditional variance.
+        garch_q: GARCH lag order for the squared innovations.
+        innovation_distributions: Distribution families to fit for GARCH innovations.
+        sign_bias_alpha: Significance level for the Engle-Ng sign bias test.
+        bds_max_dim: Maximum embedding dimension for the BDS independence test.
+        arch_lm_nlags: Number of lags for the ARCH-LM heteroscedasticity test.
+        persistence_threshold: Alpha + beta threshold above which the model is flagged as IGARCH.
+        regime_low_quantile: Lower quantile for regime classification.
+        regime_high_quantile: Upper quantile for regime classification.
+        min_samples_garch: Minimum number of observations required for GARCH fitting.
+    """
+
+    garch_p: Annotated[int, PydanticField(ge=1)] = 1
+    garch_q: Annotated[int, PydanticField(ge=1)] = 1
+    innovation_distributions: tuple[str, ...] = ("normal", "t", "skewt")
+    sign_bias_alpha: Annotated[float, PydanticField(gt=0, lt=1)] = 0.05
+    bds_max_dim: Annotated[int, PydanticField(ge=2)] = 5
+    arch_lm_nlags: Annotated[int, PydanticField(ge=1)] = 10
+    persistence_threshold: Annotated[float, PydanticField(gt=0, le=1)] = 0.99
+    regime_low_quantile: Annotated[float, PydanticField(ge=0, le=1)] = 0.25
+    regime_high_quantile: Annotated[float, PydanticField(ge=0, le=1)] = 0.75
+    min_samples_garch: Annotated[int, PydanticField(ge=1)] = 500
+
+    @model_validator(mode="after")
+    def _quantile_order(self) -> Self:
+        """Ensure low quantile is strictly less than high quantile.
+
+        Returns:
+            Validated instance.
+
+        Raises:
+            ValueError: If ``regime_low_quantile >= regime_high_quantile``.
+        """
+        if self.regime_low_quantile >= self.regime_high_quantile:
+            msg: str = (
+                f"regime_low_quantile ({self.regime_low_quantile}) "
+                f"must be < regime_high_quantile ({self.regime_high_quantile})"
+            )
+            raise ValueError(msg)
+        return self
+
+
+class GARCHFitResult(BaseModel, frozen=True):
+    """Per-distribution GARCH(1,1) fit result.
+
+    Attributes:
+        distribution: Innovation distribution label (e.g. ``"normal"``, ``"t"``, ``"skewt"``).
+        omega: Constant term in the conditional variance equation (unscaled).
+        alpha: Coefficient for lagged squared innovations.
+        beta: Coefficient for lagged conditional variance.
+        persistence: Sum of alpha and beta.
+        aic: Akaike Information Criterion.
+        bic: Bayesian Information Criterion.
+        log_likelihood: Maximised log-likelihood.
+        nu: Student-t degrees-of-freedom parameter (``None`` for normal).
+        skew_lambda: Skewed-t skewness parameter (``None`` for normal/t).
+        converged: Whether the optimizer reached convergence.
+    """
+
+    distribution: str
+    omega: float
+    alpha: float
+    beta: float
+    persistence: float
+    aic: float
+    bic: float
+    log_likelihood: float
+    nu: float | None = None
+    skew_lambda: float | None = None
+    converged: bool = True
+
+
+class SignBiasResult(BaseModel, frozen=True):
+    """Engle-Ng sign bias test results for asymmetric volatility effects.
+
+    Attributes:
+        sign_bias_tstat: t-statistic for the sign bias term (S^-_{t-1}).
+        sign_bias_pvalue: p-value for the sign bias term.
+        neg_size_bias_tstat: t-statistic for the negative size bias term.
+        neg_size_bias_pvalue: p-value for the negative size bias term.
+        pos_size_bias_tstat: t-statistic for the positive size bias term.
+        pos_size_bias_pvalue: p-value for the positive size bias term.
+        joint_f_stat: F-statistic for the joint test of all three bias terms.
+        joint_f_pvalue: p-value for the joint F-test.
+        has_leverage_effect: Whether any individual bias term is significant.
+    """
+
+    sign_bias_tstat: float
+    sign_bias_pvalue: float
+    neg_size_bias_tstat: float
+    neg_size_bias_pvalue: float
+    pos_size_bias_tstat: float
+    pos_size_bias_pvalue: float
+    joint_f_stat: float
+    joint_f_pvalue: float
+    has_leverage_effect: bool
+
+
+class BDSResult(BaseModel, frozen=True):
+    """BDS independence test result at a single embedding dimension.
+
+    Attributes:
+        dimension: Embedding dimension tested.
+        bds_statistic: BDS test statistic.
+        p_value: Two-sided p-value.
+        significant: Whether the test is significant at the configured alpha.
+    """
+
+    dimension: Annotated[int, PydanticField(ge=2)]
+    bds_statistic: float
+    p_value: Annotated[float, PydanticField(ge=0, le=1)]
+    significant: bool
+
+
+class VolatilityProfile(BaseModel, frozen=True):
+    """Per-asset, per-bar-type volatility modeling profile.
+
+    Contains GARCH(1,1) fits across multiple innovation distributions,
+    sign bias (Engle-Ng), GJR-GARCH asymmetry, ARCH-LM, BDS nonlinearity,
+    and quantile-based volatility regime classification.
+
+    Tier gating:
+        - **Tier A/B + time bars:** GARCH fits, sign bias, ARCH-LM.
+        - **Tier A + time bars + leverage:** GJR-GARCH gamma.
+        - **Tier A + time bars:** BDS nonlinearity test.
+        - **All tiers and bar types:** Regime labeling.
+
+    Attributes:
+        asset: Trading pair symbol (e.g. ``"BTCUSDT"``).
+        bar_type: Bar aggregation type (e.g. ``"time_1h"``).
+        tier: Sample-size tier controlling analysis depth.
+        n_observations: Number of return observations analysed.
+        is_time_bar: Whether this bar type is time-based (eligible for GARCH).
+        garch_fits: GARCH(1,1) fit results per distribution (time bars, Tier A/B only).
+        best_distribution: Innovation distribution with lowest AIC (time bars, Tier A/B only).
+        persistence: Alpha + beta from the best GARCH fit (time bars, Tier A/B only).
+        is_igarch: Whether persistence exceeds the IGARCH threshold (time bars, Tier A/B only).
+        sign_bias: Engle-Ng sign bias test results (time bars, Tier A/B only).
+        gjr_gamma: GJR-GARCH asymmetric leverage coefficient (time bars, Tier A only + leverage).
+        arch_lm_stat: ARCH-LM test statistic on standardised residuals (time bars, Tier A/B only).
+        arch_lm_pvalue: ARCH-LM p-value (time bars, Tier A/B only).
+        bds_results: BDS test results per dimension (time bars, Tier A only).
+        nonlinear_structure_detected: Whether >= 2 BDS dimensions are significant (Tier A only).
+        regime_labels: Volatility regime label per observation (all tiers and bar types).
+        regime_low_threshold: Realized volatility threshold for LOW regime.
+        regime_high_threshold: Realized volatility threshold for HIGH regime.
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    asset: str
+    bar_type: str
+    tier: SampleTier
+    n_observations: Annotated[int, PydanticField(ge=0)]
+    is_time_bar: bool
+
+    # GARCH fits (time bars, Tier A/B only -- None otherwise)
+    garch_fits: tuple[GARCHFitResult, ...] | None = None
+    best_distribution: str | None = None
+    persistence: float | None = None
+    is_igarch: bool | None = None
+
+    # Sign bias (time bars, Tier A/B only -- None otherwise)
+    sign_bias: SignBiasResult | None = None
+
+    # GJR-GARCH (time bars, Tier A only + leverage -- None otherwise)
+    gjr_gamma: float | None = None
+
+    # ARCH-LM (time bars, Tier A/B only -- None otherwise)
+    arch_lm_stat: float | None = None
+    arch_lm_pvalue: float | None = None
+
+    # BDS nonlinearity (time bars, Tier A only -- None otherwise)
+    bds_results: tuple[BDSResult, ...] | None = None
+    nonlinear_structure_detected: bool | None = None
+
+    # Regime classification (all tiers and bar types)
+    regime_labels: np.ndarray | None = None  # type: ignore[type-arg]
+    regime_low_threshold: float | None = None
+    regime_high_threshold: float | None = None
