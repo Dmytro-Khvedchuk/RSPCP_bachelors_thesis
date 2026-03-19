@@ -93,3 +93,27 @@
 - Infrastructure tests use `bar_connection_manager` + `bar_repository` fixtures from `src/tests/bars/conftest.py`; the table is created inline (not via Alembic) for isolation
 - pytest markers `integration` and `e2e` must be registered in `pyproject.toml` under `[tool.pytest.ini_options]` to avoid PytestUnknownMarkWarning
 - Ruff `PLR0904` (too many public methods) and `PLR0913` (too many arguments) must be added to `per-file-ignores` for `src/tests/*` — test classes routinely exceed these limits
+
+## Files Created (Phase 4E Tests — features module, 195 tests)
+- `src/tests/features/__init__.py`
+- `src/tests/features/conftest.py` — OHLCV DataFrame factories (random walk, trend, mean-reverting, OU), small-window config factories
+- `src/tests/features/test_indicators.py` — unit tests for each indicator against known values
+- `src/tests/features/test_indicators_property.py` — property tests: finite after warmup, shape, clipping, determinism
+- `src/tests/features/test_targets.py` — forward return and volatility tests on known prices
+- `src/tests/features/test_leakage.py` — future leakage detection (correlation analysis, shuffle test, time-reversal)
+- `src/tests/features/test_feature_matrix.py` — FeatureMatrixBuilder integration tests
+- `src/tests/features/test_validation_helpers.py` — MI score, empirical p-value, BH correction, DA, DC-MAE, Ridge, group classification
+- `src/tests/features/test_validation_integration.py` — FeatureValidator full pipeline with @pytest.mark.integration
+- `src/tests/features/test_value_objects.py` — IndicatorConfig, TargetConfig, ValidationConfig, FeatureConfig, FeatureSet
+- `src/tests/features/test_entities.py` — FeatureValidationResult, InteractionTestResult, ValidationReport
+
+## Features Module Critical Gotchas
+- Frozen Pydantic models raise `ValidationError` (not `TypeError` or `PydanticFrozenInstanceError`) on mutation in pydantic v2.12+
+- `ValidationConfig` minimum constraints: `n_permutations_mi>=100`, `n_permutations_ridge>=50`, `n_permutations_stability>=50` — "fast" test configs must respect these
+- Bollinger %B for CONSTANT prices: std=0 so upper==lower==middle==close; formula gives `(close-lower)/(0+EPS) = 0/EPS = 0`, NOT 0.5 — test for %B=0.5 needs a non-constant series where close==rolling_mean
+- `PLR0914` (too many local variables) fires on helper functions with 16+ vars — use `# noqa: PLR0914`
+- `B905` zip-without-strict fires in tests too — always use `zip(..., strict=True)`
+- `E741` fires on variable name `l` (ambiguous) — use `lo` or `low_val` instead
+- Pre-commit pyright hook (v1.1.408) has a pre-existing failure on `src/app/system/database/repository.py` (PEP 695 syntax) unrelated to tests — confirmed present before Phase 4E changes
+- `compute_all_indicators` with `hurst_window=40`, `slope_window=5`, `obv_slope_window=5` works well for 150-row test DataFrames
+- Leakage tests: use `np.corrcoef` with `strict=False` NaN handling (some features have zero variance after warmup, causing NaN correlations that should be skipped)

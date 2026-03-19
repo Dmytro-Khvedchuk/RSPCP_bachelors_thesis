@@ -19,6 +19,9 @@ just lint                   # Run all pre-commit hooks (ruff format + ruff lint 
 just test                   # Run full test suite (uv run pytest src/tests/)
 just test src/tests/research/  # Run specific test module
 just test -k "test_name"    # Run single test by name
+just test -m integration    # Run only integration tests
+just test -m "not e2e"      # Exclude e2e tests
+just serve                  # MkDocs live-reload server
 
 # Data pipeline
 just ingest --assets BTCUSDT,ETHUSDT --timeframes 1h,4h --start 2020-01-01
@@ -56,10 +59,10 @@ infrastructure/  # Concrete implementations — depends on domain + external lib
 |--------|--------|---------|
 | `system/` | ✅ | Logging (Loguru), database (DuckDB + SQLAlchemy + Alembic) |
 | `ohlcv/` | ✅ | OHLCV domain entities, repository, service |
-| `ingestion/` | ✅ | Binance API client, ingestion service, CLI |
-| `bars/` | ✅ | Lopez de Prado alternative bars (tick, volume, dollar, imbalance, run) + CLI |
+| `ingestion/` | ✅ | Binance API client, ingestion service, CLI (`src/app/ingestion/cli.py`) |
+| `bars/` | ✅ | Lopez de Prado alternative bars (tick, volume, dollar, imbalance, run) + CLI (`src/app/bars/cli.py`) |
 | `research/` | ✅ | RC1 analysis services (coverage, returns, ACF, bar comparison, charts) |
-| `features/` | Phase 4 | Feature engineering + validation |
+| `features/` | ✅ | Feature engineering (indicators, targets, matrix builder) + validation (MI, BH, DA) |
 | `profiling/` | Phase 5 | Statistical profiling per asset |
 | `backtest/` | Phase 7 | Event-driven backtest engine |
 | `strategy/` | Phase 8 | Base trading strategies |
@@ -72,7 +75,7 @@ infrastructure/  # Concrete implementations — depends on domain + external lib
 | Library | Where | Why |
 |---------|-------|-----|
 | **Polars** | Pipeline code (ingestion → bars → features → backtest → live) | Performance, lazy eval, no GIL |
-| **Pandas** | Research notebooks (RC1–RC4), `src/app/research/`, model training | ML ecosystem compat (statsmodels, arch, sklearn) |
+| **Pandas** | Research notebooks (RC1–RC4), `src/app/research/`, validation (`features/application/validation.py`) | ML ecosystem compat (statsmodels, sklearn) |
 | **NumPy** | Vectorized math (indicators, bootstrap, Monte Carlo) | Tight numerical loops |
 
 Conversion boundaries are explicit: `df_polars.to_pandas()`, `pl.from_pandas(df_pandas)`, `.to_numpy()`.
@@ -81,9 +84,19 @@ Conversion boundaries are explicit: `df_polars.to_pandas()`, `pl.from_pandas(df_
 
 - **DuckDB** for ALL analytical storage — no Postgres, no SQLite
 - `src/app/system/database/connection.py` — `ConnectionManager` (SQLAlchemy + DuckDB)
-- `.env` contains `DUCKDB_PATH`, `BINANCE_API_KEY`, `BINANCE_API_SECRET`
+- `.env` contains `DUCKDB_PATH`, `BINANCE_API_KEY`, `BINANCE_API_SECRET` (see `.example.env` for template)
 - **Every** schema change goes through Alembic migrations (no raw DDL outside migrations)
 - Migrations in `src/app/system/database/alembic/versions/`, config at `src/app/system/database/alembic.cfg`
+
+### Test Architecture
+
+Tests mirror the source structure under `src/tests/<module>/`. Pytest markers: `integration`, `e2e`.
+
+**Test patterns used throughout:**
+- Factory functions in `src/tests/conftest.py`: `make_asset()`, `make_date_range()`, `make_candle()`
+- Fake implementations for Protocols in per-module `conftest.py` files (e.g., `FakeMarketDataFetcher`, `FakeOHLCVRepository`)
+- Shared fixtures: `btc_asset`, `eth_asset`, `date_range`, `h1_timeframe`
+- In-memory DuckDB for integration/e2e tests
 
 ## Code Standards
 
@@ -111,9 +124,10 @@ Every public module, class, method, and function. One-liner at top of every `.py
 
 ### Per-File Lint Relaxations
 
-- `src/app/research/*` — no `ANN` (untyped third-party libs), no `PLR6301`
-- `research/*.ipynb` — no `T201` (print), `E402` (imports after magic), `ANN`, `D`, `DOC`, `F401`, `PLR2004`
-- `src/tests/*` — no `S101` (assert), `ANN`, `D`, `DOC`, `PLR2004`
+See `pyproject.toml` `[tool.ruff.lint.per-file-ignores]` for the full list. Key relaxations:
+- `src/tests/*` — no `S101`, `ANN`, `D`, `DOC`, `PLR2004` (and several others)
+- `src/app/research/*` — no `ANN`, `PLR6301`
+- `research/*.ipynb` — no `T201`, `E402`, `ANN`, `D`, `DOC`, `F401`, `PLR2004`
 
 ## Key Design Decisions
 
@@ -126,13 +140,16 @@ Every public module, class, method, and function. One-liner at top of every `.py
 7. **Honest evaluation:** Negative results are valid and documented.
 8. **Config-driven:** Every parameter in Pydantic config classes. No magic numbers.
 
-## Current Progress (Phases 1–3 complete)
+## Current Progress (Phases 1–4 complete)
 
 **RC1 findings** (see `research/RC1_analysis.md`):
 - **Assets:** BTCUSDT, ETHUSDT, LTCUSDT, SOLUSDT (all pass quality filters, >99.9% coverage)
 - **Bar types for Phase 4:** dollar (primary, N=5,286), volume (N=3,264), volume_imbalance (N=530), dollar_imbalance (N=568), time_1h (baseline)
 - **Disqualified:** tick bars (threshold too high, ≤55 bars), run bars (extreme kurtosis 30–43)
-- **Next:** Phase 4 (Feature Engineering)
+
+**Phase 4 complete:** Feature engineering (indicators, targets, matrix builder) + validation pipeline (MI permutation tests, Benjamini-Hochberg correction, directional accuracy, DC-MAE, temporal stability). See `4d_report.md` for validation review.
+
+- **Next:** Phase 5 (Statistical Profiling)
 
 ## What NOT to Do
 
