@@ -16,8 +16,22 @@
 - `main.py`, `pyproject.toml`, `justfile`, `mkdocs.yml`, `IMPLEMENTATION_PLAN.md`
 - `.github/workflows/ci.yml`, `.github/release.yml`
 
+### features Module (Phase 4) — Confirmed Structure
+- `src/app/features/` — domain (value_objects.py, entities.py), application (indicators.py, targets.py, feature_matrix.py, validation.py)
+- `src/tests/features/` — 195 tests, flat structure (no unit/e2e subdirs): test_indicators.py, test_indicators_property.py, test_targets.py, test_feature_matrix.py, test_validation_helpers.py, test_validation_integration.py, test_value_objects.py, test_entities.py, test_leakage.py
+- 23 features with default IndicatorConfig: Returns(4) + Volatility(6) + Momentum(5) + Volume(3) + Statistical(5)
+- Column naming: `logret_N`, `rv_N`, `gk_vol_N`, `park_vol_N`, `atr_N`, `ema_xover_F_S`, `rsi_N`, `roc_N`, `vol_zscore_N`, `obv_slope_N`, `amihud_N`, `ret_zscore_N`, `bbpctb_W_STD`, `bbwidth_W_STD`, `slope_N`, `hurst_N`
+- Target columns prefixed `fwd_`: `fwd_logret_{h}`, `fwd_vol_{h}`. TARGET_PREFIX = "fwd_" constant.
+- FeatureMatrixBuilder is stateless — no constructor deps; pure computation via .build(df, FeatureConfig) → FeatureSet
+- Validation gates (all three must pass for keep=True): MI BH-corrected p < α, Ridge DA empirical p < α, temporal stability ≥ 50% windows
+- Group interaction test (4th battery) is informational only — does NOT affect keep flag
+- Fallback: if fewer than min_features_kept pass all gates, top N by composite score are force-kept
+- FeatureValidator uses Pandas + NumPy (not Polars) — research/ML path per CLAUDE.md convention
+- No infrastructure layer in features/ — no I/O, no DB. Domain + application only.
+
 ### Does NOT exist yet
-- `research/` — planned for RC1–RC4 notebooks, not created yet. Do not reference in README.
+- `research/` directory at repo root — planned for RC1–RC4 notebooks, not created yet. Do not reference in README.
+  Note: `src/app/research/` exists (RC1 analysis services), but the top-level `research/` dir does not.
 
 ### Justfile Commands (verified)
 - `just run` — python main.py
@@ -66,10 +80,12 @@ Timeframe enum only has: H1, H4, D1.
 
 ### README Style Decisions
 - No badges (project has no live CI badge URLs)
-- Data flow section as ASCII diagram using boxes and arrows
+- Data flow section as ASCII diagram using boxes and arrows — extend it as new pipeline stages are added
 - Module roadmap table with Phase, Module, Purpose, Status columns
-- Two detailed technical sections for ingestion and OHLCV modules
+- Detailed technical section per module (Ingestion, OHLCV, Bars, Features) in the root README
 - Implementation plan summary kept brief, points to IMPLEMENTATION_PLAN.md
+- Feature group tables use 3-column format: Group (count) | Features | Column prefix
+- Validation pipeline tables use 3-column format: Battery | Method | Gate
 - For module READMEs: include algorithm pseudocode for complex logic (e.g., imbalance/run sequential loop)
 - Bar type tables use 4-column format: BarType | Class | Sampling trigger | Algorithm
 - Test READMEs include fixture table with 3 columns: Fixture/Helper | Returns | Purpose

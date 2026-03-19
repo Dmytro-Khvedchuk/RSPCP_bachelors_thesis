@@ -13,8 +13,9 @@ into a trained recommendation system that selects which trading signals to act o
 framework is statistically rigorous: walk-forward cross-validation, Monte Carlo permutation tests,
 and deflated Sharpe ratios guard against overfitting.
 
-**Current state:** Phase 2 complete — López de Prado alternative bars (tick, volume, dollar,
-imbalance, run) with adaptive EMA thresholds, DuckDB storage, and 412 tests passing.
+**Current state:** Phases 1–4 complete — OHLCV ingestion, López de Prado alternative bars,
+RC1 research checkpoint, and full feature engineering pipeline (23 indicators, regression
+targets, feature matrix builder, and permutation-test validation) with 607 tests passing.
 
 ---
 
@@ -39,7 +40,8 @@ dependencies between layers. All data classes use Pydantic `BaseModel` — no ra
 | 1 | `ohlcv/` | Candle entities + DuckDB repository | Done |
 | 1 | `ingestion/` | Binance fetcher + ingestion service + CLI | Done |
 | 2 | `bars/` | Lopez de Prado alternative bars | Done |
-| 4 | `features/` | Feature engineering + targets | Planned |
+| 3 | `research/` | RC1 analysis (coverage, returns, ACF, bar comparison, charts) | Done |
+| 4 | `features/` | Technical indicators, regression targets, matrix builder, validation | Done |
 | 5 | `profiling/` | Statistical profiling per asset | Planned |
 | 7 | `backtest/` | Event-driven backtest engine | Planned |
 | 8 | `strategy/` | Momentum, DRTS, mean-reversion strategies | Planned |
@@ -61,6 +63,10 @@ RSPCP_bachelors_thesis/
 │   │   │   ├── domain/          # BarType, BarConfig, AggregatedBar, IBarAggregator, IBarRepository
 │   │   │   ├── application/     # Tick/Volume/Dollar/Imbalance/Run bar aggregators
 │   │   │   └── infrastructure/  # DuckDBBarRepository
+│   │   ├── features/            # Phase 4 — feature engineering + validation
+│   │   │   ├── domain/          # IndicatorConfig, TargetConfig, FeatureConfig, FeatureSet, ValidationConfig
+│   │   │   │                    # FeatureValidationResult, InteractionTestResult, ValidationReport
+│   │   │   └── application/     # indicators.py, targets.py, feature_matrix.py, validation.py
 │   │   ├── ingestion/           # Phase 1 — Binance OHLCV ingestion
 │   │   │   ├── domain/          # BinanceKlineInterval, FetchRequest, exceptions, IMarketDataFetcher
 │   │   │   ├── application/     # IngestionService, IngestAssetCommand, IngestUniverseCommand
@@ -69,12 +75,14 @@ RSPCP_bachelors_thesis/
 │   │   ├── ohlcv/               # OHLCV domain model + DuckDB repository
 │   │   │   ├── domain/          # OHLCVCandle, Asset, Timeframe, DateRange, TemporalSplit
 │   │   │   └── infrastructure/  # DuckDBOHLCVRepository
+│   │   ├── research/            # Phase 3 — RC1 analysis services
 │   │   └── system/              # Cross-cutting concerns
 │   │       ├── logging.py       # Loguru setup
 │   │       └── database/        # ConnectionManager, DatabaseSettings, BaseRepository, Alembic
 │   └── tests/
 │       ├── conftest.py          # Shared factories: make_asset, make_date_range, make_candle
 │       ├── bars/                # 260 tests — domain, application, infrastructure, statistical
+│       ├── features/            # 195 tests — indicators, targets, matrix, validation, leakage
 │       └── ingestion/
 │           ├── conftest.py      # Fakes: FakeMarketDataFetcher, FakeOHLCVRepository; kline builders
 │           ├── unit/            # Unit tests for all ingestion components
@@ -311,6 +319,79 @@ is `DOUBLE` because sub-satoshi precision is unnecessary there.
 
 ---
 
+## Features Module — Technical Detail
+
+Implements the full Phase 4 feature engineering pipeline: backward-looking technical
+indicators, forward-looking regression targets, a matrix builder that chains them into a
+clean `FeatureSet`, and a permutation-test validator that gates features before they reach
+any model.
+
+### Feature groups (23 features with default config)
+
+| Group | Features | Column prefix |
+|-------|----------|---------------|
+| Returns (4) | Log returns at horizons 1, 4, 12, 24 bars | `logret_` |
+| Volatility (6) | Realized vol (3 windows), Garman-Klass, Parkinson, ATR | `rv_`, `gk_vol_`, `park_vol_`, `atr_` |
+| Momentum (5) | ATR-normalised EMA crossover, RSI-14, ROC at 3 periods | `ema_xover_`, `rsi_`, `roc_` |
+| Volume (3) | Volume z-score, OBV slope, Amihud illiquidity ratio | `vol_zscore_`, `obv_slope_`, `amihud_` |
+| Statistical (5) | Return z-score, Bollinger %B, Bollinger width, price slope, Hurst exponent | `ret_zscore_`, `bbpctb_`, `bbwidth_`, `slope_`, `hurst_` |
+
+Rolling-map features (slope, OBV slope, Hurst) use NumPy callbacks via `rolling_map` and
+are applied in a separate pass. All feature columns are clipped to `[clip_lower, clip_upper]`
+(default `[-5, 5]`) to prevent outliers from dominating downstream models.
+
+### Regression targets
+
+| Target | Formula | Column |
+|--------|---------|--------|
+| Forward log return | `ln(C_{t+h} / C_t)` | `fwd_logret_{h}` |
+| Forward realized volatility | `std(r_{t+1}, …, r_{t+h})` | `fwd_vol_{h}` |
+
+Default horizons: returns at 1, 4, 24 bars; volatility at 4, 24 bars. The `fwd_` prefix
+distinguishes targets from backward-looking indicators. Targets are never present during
+live inference (`FeatureConfig.compute_targets=False`).
+
+### Pipeline
+
+```
+raw OHLCV DataFrame
+      │
+      ▼
+compute_all_indicators(df, IndicatorConfig)   ← Polars expressions, vectorised
+      │  (two-pass: batch Expr then rolling_map; clip at end)
+      ▼
+compute_all_targets(df, TargetConfig)         ← forward-looking, negative-shift Polars exprs
+      │
+      ▼
+FeatureMatrixBuilder.build(df, FeatureConfig)
+      │  (identify new columns, drop NaN rows, record row counts)
+      ▼
+FeatureSet(df, feature_columns, target_columns, n_rows_raw, n_rows_clean)
+      │
+      ▼
+FeatureValidator.validate(feature_set, ValidationConfig)
+      │  (four independent test batteries, see below)
+      ▼
+ValidationReport(feature_results, kept_feature_names, dropped_feature_names, …)
+```
+
+### Validation pipeline (Phase 4D)
+
+A feature passes all three gates to be kept (`FeatureValidationResult.keep = True`):
+
+| Battery | Method | Gate |
+|---------|--------|------|
+| MI permutation test | Mutual information vs. 1000-shuffle null, Phipson-Smyth empirical p-value | BH-corrected p < α |
+| Ridge DA / DC-MAE | Single-feature Ridge on temporal 70/30 split, DA vs. 500-shuffle null | DA empirical p < α |
+| Temporal stability | Per-year-window MI significance across configurable year boundaries | Significant in ≥ 50% of valid windows |
+| Group interaction (informational) | Group vs. individual Ridge R-squared for synergy/redundancy | Does not affect `keep` |
+
+Benjamini-Hochberg FDR correction is applied to the MI p-values to control false discovery
+rate across all features simultaneously. A fallback ensures at least `min_features_kept`
+(default 5) features are kept even if the statistical gates are too strict for the dataset.
+
+---
+
 ## CI/CD
 
 Two GitHub Actions workflows run on pull requests to `main`:
@@ -433,6 +514,15 @@ DuckDBBarRepository.ingest()
       │  (INSERT OR IGNORE, config_hash deduplication)
       ▼
 data/market.duckdb   (aggregated_bars table)
+      │
+      ▼
+FeatureMatrixBuilder.build(df, FeatureConfig)
+      │  (indicators → targets → NaN drop → FeatureSet)
+      ▼
+FeatureValidator.validate(feature_set, ValidationConfig)
+      │  (MI permutation, Ridge DA/DC-MAE, temporal stability, BH correction)
+      ▼
+ValidationReport   ←── kept_feature_names, per-feature keep/drop decisions
 ```
 
 ---
@@ -443,7 +533,7 @@ The full plan is in [`IMPLEMENTATION_PLAN.md`](./IMPLEMENTATION_PLAN.md). Summar
 
 **Block I — Data & Infrastructure (Phases 1–8)**
 
-Ingestion → alternative bars → RC1 → features → profiling → RC2 → backtest engine → strategies
+Ingestion → alternative bars → RC1 → features ✓ → profiling → RC2 → backtest engine → strategies
 
 **Block II — Models & Recommendation (Phases 9–14)**
 
