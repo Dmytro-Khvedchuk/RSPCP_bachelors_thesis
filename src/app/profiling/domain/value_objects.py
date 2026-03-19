@@ -1,4 +1,4 @@
-"""Profiling domain value objects -- data partitions, sample tiers, distribution profiles, and stationarity results."""
+"""Profiling domain value objects -- partitions, tiers, profiles, configs, and statistical report."""
 
 from __future__ import annotations
 
@@ -797,3 +797,118 @@ class PredictabilityProfile(BaseModel, frozen=True):
     snr_r2: float | None = None
     snr_r2_noise_baseline: float | None = None
     is_predictable_vs_noise: bool | None = None
+
+
+# ---------------------------------------------------------------------------
+# Phase 5E: Profiling service value objects
+# ---------------------------------------------------------------------------
+
+
+class ProfilingConfig(BaseModel, frozen=True):
+    """Composite configuration for the full statistical profiling pipeline.
+
+    Holds sub-configs for each Phase 5 analyzer, sample-tier thresholds,
+    FDR correction parameters, and stationarity test settings.
+
+    Attributes:
+        distribution: Distribution analysis sub-config.
+        autocorrelation: Serial dependence sub-config.
+        volatility: Volatility modeling sub-config.
+        predictability: Predictability assessment sub-config.
+        tier: Sample-size tier thresholds.
+        fdr_alpha: Significance level for Benjamini-Hochberg FDR correction.
+        stationarity_alpha: Significance level for ADF/KPSS stationarity tests.
+    """
+
+    distribution: DistributionConfig = DistributionConfig()
+    autocorrelation: AutocorrelationConfig = AutocorrelationConfig()
+    volatility: VolatilityConfig = VolatilityConfig()
+    predictability: PredictabilityConfig = PredictabilityConfig()
+    tier: TierConfig = TierConfig(tier_a_threshold=2000, tier_b_threshold=500)
+    fdr_alpha: Annotated[float, PydanticField(gt=0, lt=1)] = 0.05
+    stationarity_alpha: Annotated[float, PydanticField(gt=0, lt=1)] = 0.05
+
+
+class CorrectedPValue(BaseModel, frozen=True):
+    """A single inferential test p-value with Benjamini-Hochberg FDR correction.
+
+    Stores both raw and corrected p-values along with significance decisions,
+    enabling transparent comparison of pre- and post-correction conclusions.
+
+    Attributes:
+        asset: Trading pair symbol (e.g. ``"BTCUSDT"``).
+        bar_type: Bar aggregation type (e.g. ``"dollar"``).
+        test_name: Identifier for the statistical test (e.g. ``"ljung_box_returns"``).
+        parameter: Test-specific parameter string (e.g. ``"lag=5"``).
+        raw_pvalue: Original (uncorrected) p-value from the test.
+        corrected_pvalue: Benjamini-Hochberg adjusted p-value.
+        significant_raw: Whether the raw p-value is below the FDR alpha.
+        significant_corrected: Whether the corrected p-value is below the FDR alpha.
+    """
+
+    asset: str
+    bar_type: str
+    test_name: str
+    parameter: str
+    raw_pvalue: Annotated[float, PydanticField(ge=0, le=1)]
+    corrected_pvalue: Annotated[float, PydanticField(ge=0, le=1)]
+    significant_raw: bool
+    significant_corrected: bool
+
+
+class AssetBarProfile(BaseModel, frozen=True):
+    """Aggregate statistical profile for a single (asset, bar_type) combination.
+
+    Collects outputs from all Phase 5 analyzers into a single frozen value
+    object.  Fields are ``None`` when the corresponding analyzer was not run
+    (e.g. due to insufficient data or tier gating).
+
+    Attributes:
+        asset: Trading pair symbol (e.g. ``"BTCUSDT"``).
+        bar_type: Bar aggregation type (e.g. ``"dollar"``).
+        tier: Sample-size tier assigned to this combination.
+        n_observations: Number of return observations available.
+        distribution: Return distribution profile (Phase 5A).
+        autocorrelation: Serial dependence profile (Phase 5B).
+        volatility: Volatility modeling profile (Phase 5C).
+        predictability: Predictability assessment profile (Phase 5D).
+        stationarity: Feature stationarity report (Phase 5pre).
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    asset: str
+    bar_type: str
+    tier: SampleTier
+    n_observations: Annotated[int, PydanticField(ge=0)]
+    distribution: DistributionProfile | None = None
+    autocorrelation: AutocorrelationProfile | None = None
+    volatility: VolatilityProfile | None = None
+    predictability: PredictabilityProfile | None = None
+    stationarity: StationarityReport | None = None
+
+
+class StatisticalReport(BaseModel, frozen=True):
+    """Cross-asset statistical profiling report with FDR-corrected p-values.
+
+    Aggregates all per-asset-bar-type profiles and provides summary
+    statistics on hypothesis test outcomes before and after
+    Benjamini-Hochberg correction.
+
+    Attributes:
+        profiles: All per-asset-bar-type statistical profiles.
+        corrected_pvalues: BH-corrected p-values across the full test grid.
+        n_assets: Number of distinct assets profiled.
+        n_bar_types: Number of distinct bar types profiled.
+        n_total_tests: Total number of inferential tests conducted.
+        n_significant_raw: Tests significant before FDR correction.
+        n_significant_corrected: Tests significant after FDR correction.
+    """
+
+    profiles: tuple[AssetBarProfile, ...]
+    corrected_pvalues: tuple[CorrectedPValue, ...]
+    n_assets: Annotated[int, PydanticField(ge=0)]
+    n_bar_types: Annotated[int, PydanticField(ge=0)]
+    n_total_tests: Annotated[int, PydanticField(ge=0)]
+    n_significant_raw: Annotated[int, PydanticField(ge=0)]
+    n_significant_corrected: Annotated[int, PydanticField(ge=0)]
