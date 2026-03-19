@@ -696,3 +696,104 @@ class VolatilityProfile(BaseModel, frozen=True):
     regime_labels: np.ndarray | None = None  # type: ignore[type-arg]
     regime_low_threshold: float | None = None
     regime_high_threshold: float | None = None
+
+
+# ---------------------------------------------------------------------------
+# Phase 5D: Predictability assessment value objects
+# ---------------------------------------------------------------------------
+
+
+class PredictabilityConfig(BaseModel, frozen=True):
+    """Configuration for predictability assessment analysis.
+
+    Controls permutation entropy dimensions, statistical power parameters,
+    transaction cost assumptions, and signal-to-noise ratio holdout settings.
+
+    Attributes:
+        pe_dimensions: Embedding dimensions for permutation entropy (Bandt & Pompe).
+        pe_delay: Time delay (tau) for permutation entropy ordinal patterns.
+        alpha: Significance level for MDE computation.
+        power: Statistical power for MDE computation.
+        round_trip_cost: Round-trip transaction cost (Binance spot default 0.2%).
+        snr_holdout_fraction: Fraction of data reserved for SNR temporal holdout.
+        snr_ridge_alpha: Ridge regression regularization strength.
+        snr_n_noise_baselines: Number of random-feature baseline runs for SNR.
+        bartlett_max_lag_fraction: Maximum lag as fraction of N for Kish N_eff Bartlett bandwidth.
+        min_samples_predictability: Minimum samples for any predictability analysis.
+    """
+
+    pe_dimensions: tuple[int, ...] = (3, 4, 5, 6)
+    pe_delay: Annotated[int, PydanticField(ge=1)] = 1
+    alpha: Annotated[float, PydanticField(gt=0, lt=1)] = 0.05
+    power: Annotated[float, PydanticField(gt=0, lt=1)] = 0.80
+    round_trip_cost: Annotated[float, PydanticField(ge=0)] = 0.002
+    snr_holdout_fraction: Annotated[float, PydanticField(gt=0, lt=1)] = 0.30
+    snr_ridge_alpha: Annotated[float, PydanticField(gt=0)] = 1.0
+    snr_n_noise_baselines: Annotated[int, PydanticField(ge=1)] = 10
+    bartlett_max_lag_fraction: Annotated[float, PydanticField(gt=0, lt=1)] = 0.1
+    min_samples_predictability: Annotated[int, PydanticField(ge=10)] = 100
+
+
+class PermutationEntropyResult(BaseModel, frozen=True):
+    """Permutation entropy result for a single embedding dimension.
+
+    Attributes:
+        dimension: Embedding dimension d used for ordinal pattern extraction.
+        normalized_entropy: H_norm in [0, 1]; 1 indicates maximum randomness.
+        js_complexity: Jensen-Shannon statistical complexity C (>= 0).
+    """
+
+    dimension: Annotated[int, PydanticField(ge=2)]
+    normalized_entropy: Annotated[float, PydanticField(ge=0, le=1)]
+    js_complexity: Annotated[float, PydanticField(ge=0)]
+
+
+class PredictabilityProfile(BaseModel, frozen=True):
+    """Per-asset, per-bar-type predictability assessment profile.
+
+    Contains permutation entropy, Kish effective sample size,
+    minimum detectable effect for directional accuracy, break-even DA
+    from transaction costs, and signal-to-noise ratio from Ridge regression.
+
+    Tier gating:
+        - **Tier A/B:** Permutation entropy, Kish N_eff, MDE DA, breakeven DA.
+        - **Tier A only (+ features):** SNR R² via Ridge regression.
+        - **Tier C:** All analysis fields are None.
+
+    Attributes:
+        asset: Trading pair symbol (e.g. ``"BTCUSDT"``).
+        bar_type: Bar aggregation type (e.g. ``"dollar"``).
+        tier: Sample-size tier controlling analysis depth.
+        n_observations: Number of return observations analysed.
+        permutation_entropies: Per-dimension PE results (Tier A/B only).
+        n_eff: Kish effective sample size (Tier A/B only).
+        n_eff_ratio: N_eff / N ratio (Tier A/B only).
+        mde_da: Minimum detectable directional accuracy above 0.5 (Tier A/B only).
+        breakeven_da: Break-even DA from transaction costs (Tier A/B only).
+        snr_r2: Adjusted R-squared from Ridge on real features (Tier A only).
+        snr_r2_noise_baseline: Mean adjusted R-squared from random noise features (Tier A only).
+        is_predictable_vs_noise: Whether snr_r2 exceeds snr_r2_noise_baseline (Tier A only).
+    """
+
+    asset: str
+    bar_type: str
+    tier: SampleTier
+    n_observations: Annotated[int, PydanticField(ge=0)]
+
+    # Permutation entropy (Tier A/B only -- None for Tier C)
+    permutation_entropies: tuple[PermutationEntropyResult, ...] | None = None
+
+    # Kish effective sample size (Tier A/B only -- None for Tier C)
+    n_eff: float | None = None
+    n_eff_ratio: float | None = None
+
+    # Minimum detectable effect (Tier A/B only -- None for Tier C)
+    mde_da: float | None = None
+
+    # Break-even directional accuracy (Tier A/B only -- None for Tier C)
+    breakeven_da: float | None = None
+
+    # Signal-to-noise ratio (Tier A only + features -- None otherwise)
+    snr_r2: float | None = None
+    snr_r2_noise_baseline: float | None = None
+    is_predictable_vs_noise: bool | None = None
