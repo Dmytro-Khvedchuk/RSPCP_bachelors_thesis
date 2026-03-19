@@ -23,6 +23,7 @@ dependencies = [
     "pre-commit>=4.5.1",
     "pydantic-settings>=2.13.1",
     "python-binance>=1.0.29",
+    "scikit-learn>=1.7.0",
     "scipy>=1.17.0",
     "sqlalchemy>=2.0.46",
     "statsmodels>=0.14.6",
