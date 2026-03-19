@@ -11,6 +11,15 @@ import numpy as np
 import pandas as pd  # type: ignore[import-untyped]
 from scipy import stats  # type: ignore[import-untyped]
 
+from src.app.profiling.domain.value_objects import (
+    AutocorrelationConfig,
+    DistributionConfig,
+    PredictabilityConfig,
+    ProfilingConfig,
+    TierConfig,
+    VolatilityConfig,
+)
+
 
 def make_stationary_series(
     n: int = 500,
@@ -445,3 +454,75 @@ def make_predictable_features(
     for i in range(n_noise):
         features[:, n_informative + i] = rng.normal(0, 0.01, size=n)
     return features
+
+
+# ---------------------------------------------------------------------------
+# Price-level random walk (for VR = 1 testing)
+# ---------------------------------------------------------------------------
+
+
+def make_random_walk(
+    n: int = 1000,
+    seed: int = 42,
+) -> pd.Series:  # type: ignore[type-arg]
+    """Generate a price-level random walk (cumulative sum of white noise).
+
+    Suitable for variance-ratio tests that expect VR(q) ≈ 1.0 at all horizons,
+    since the log-price series satisfies the martingale difference hypothesis.
+
+    Args:
+        n: Number of observations (levels, not returns).
+        seed: Random seed for reproducibility.
+
+    Returns:
+        Pandas Series of cumulative sum of i.i.d. N(0, 0.01) increments.
+    """
+    rng = np.random.default_rng(seed)
+    increments: np.ndarray[tuple[int], np.dtype[np.float64]] = rng.normal(loc=0.0, scale=0.01, size=n)
+    levels: np.ndarray[tuple[int], np.dtype[np.float64]] = np.cumsum(increments)
+    return pd.Series(levels, dtype=np.float64, name="random_walk")
+
+
+# ---------------------------------------------------------------------------
+# ProfilingConfig factory with fast defaults for testing
+# ---------------------------------------------------------------------------
+
+
+def make_profiling_config() -> ProfilingConfig:
+    """Return a ProfilingConfig with reduced parameters for fast test execution.
+
+    Reduces computation by:
+    - Cutting Ljung-Box lags to (5, 10) instead of (5, 10, 20, 40).
+    - Using only a single VR horizon.
+    - Fitting only the Normal distribution for GARCH (skips t + skewt).
+    - Lowering min_samples_garch so small synthetic datasets qualify.
+    - Using only one PE dimension.
+
+    Returns:
+        Frozen ``ProfilingConfig`` suitable for fast unit and integration tests.
+    """
+    fast_autocorr: AutocorrelationConfig = AutocorrelationConfig(
+        ljung_box_lags=(5, 10),
+        vr_calendar_horizons_days=(1.0, 3.0),
+        granger_max_lags=(1, 2),
+    )
+    fast_vol: VolatilityConfig = VolatilityConfig(
+        innovation_distributions=("normal",),
+        min_samples_garch=200,
+        bds_max_dim=3,
+        arch_lm_nlags=5,
+    )
+    fast_pred: PredictabilityConfig = PredictabilityConfig(
+        pe_dimensions=(3, 4),
+        snr_n_noise_baselines=3,
+        min_samples_predictability=50,
+    )
+    fast_dist: DistributionConfig = DistributionConfig()
+    fast_tier: TierConfig = TierConfig(tier_a_threshold=2000, tier_b_threshold=500)
+    return ProfilingConfig(
+        distribution=fast_dist,
+        autocorrelation=fast_autocorr,
+        volatility=fast_vol,
+        predictability=fast_pred,
+        tier=fast_tier,
+    )
