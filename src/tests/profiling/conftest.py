@@ -1,7 +1,8 @@
 """Shared fixtures and factory functions for profiling module tests.
 
 Provides synthetic data generators for stationarity testing,
-distribution analysis, and reusable configuration fixtures.
+distribution analysis, serial dependence analysis, and reusable
+configuration fixtures.
 """
 
 from __future__ import annotations
@@ -147,3 +148,112 @@ def make_skewed_returns(
     a = -5.0 if skew_direction == "left" else 5.0
     data = stats.skewnorm.rvs(a, size=n, random_state=seed) * 0.01
     return pd.Series(data, dtype=np.float64, name="log_return")
+
+
+# ---------------------------------------------------------------------------
+# Serial dependence analysis helpers
+# ---------------------------------------------------------------------------
+
+
+def make_ar1_returns(
+    n: int = 1000,
+    phi: float = 0.5,
+    seed: int = 42,
+) -> pd.Series:  # type: ignore[type-arg]
+    """Generate an AR(1) return series with parameter *phi*.
+
+    ``r_t = phi * r_{t-1} + epsilon_t`` where ``epsilon ~ N(0, 0.01)``.
+
+    Args:
+        n: Number of return observations.
+        phi: AR(1) coefficient (|phi| < 1 for stationarity).
+        seed: Random seed for reproducibility.
+
+    Returns:
+        Pandas Series of AR(1) returns.
+    """
+    rng = np.random.default_rng(seed)
+    noise = rng.normal(loc=0.0, scale=0.01, size=n)
+    data = np.zeros(n, dtype=np.float64)
+    for i in range(1, n):
+        data[i] = phi * data[i - 1] + noise[i]
+    return pd.Series(data, dtype=np.float64, name="ar1_return")
+
+
+def make_random_walk_returns(
+    n: int = 1000,
+    seed: int = 42,
+) -> pd.Series:  # type: ignore[type-arg]
+    """Generate random walk returns (first differences of a random walk).
+
+    The *returns* are i.i.d. white noise ``N(0, 0.01)`` (since diff of
+    random walk = innovations).
+
+    Args:
+        n: Number of return observations.
+        seed: Random seed for reproducibility.
+
+    Returns:
+        Pandas Series of i.i.d. Normal returns.
+    """
+    rng = np.random.default_rng(seed)
+    data = rng.normal(loc=0.0, scale=0.01, size=n)
+    return pd.Series(data, dtype=np.float64, name="rw_return")
+
+
+def make_garch_like_returns(
+    n: int = 1000,
+    seed: int = 42,
+) -> pd.Series:  # type: ignore[type-arg]
+    """Generate returns with GARCH-like volatility clustering.
+
+    Uses a simple approximation: multiply white noise by a rolling
+    absolute return to create conditional heteroscedasticity.
+    ``sigma_t = 0.005 + 0.8 * |r_{t-1}|``, ``r_t = sigma_t * z_t``.
+
+    Args:
+        n: Number of return observations.
+        seed: Random seed for reproducibility.
+
+    Returns:
+        Pandas Series of returns exhibiting volatility clustering.
+    """
+    rng = np.random.default_rng(seed)
+    z = rng.standard_normal(n)
+    data = np.zeros(n, dtype=np.float64)
+    sigma = np.zeros(n, dtype=np.float64)
+    sigma[0] = 0.01
+    data[0] = sigma[0] * z[0]
+    for i in range(1, n):
+        sigma[i] = 0.005 + 0.8 * abs(data[i - 1])
+        data[i] = sigma[i] * z[i]
+    return pd.Series(data, dtype=np.float64, name="garch_return")
+
+
+def make_causal_pair(
+    n: int = 500,
+    lag: int = 1,
+    seed: int = 42,
+) -> tuple[pd.Series, pd.Series]:  # type: ignore[type-arg]
+    """Generate a pair of return series where X Granger-causes Y.
+
+    ``Y_t = alpha * X_{t-lag} + noise``.
+
+    Args:
+        n: Number of return observations.
+        lag: Lag order of the causal relationship.
+        seed: Random seed for reproducibility.
+
+    Returns:
+        Tuple of ``(X, Y)`` Pandas Series.
+    """
+    rng = np.random.default_rng(seed)
+    x = rng.normal(loc=0.0, scale=0.01, size=n)
+    noise = rng.normal(loc=0.0, scale=0.005, size=n)
+    y = np.zeros(n, dtype=np.float64)
+    for i in range(lag, n):
+        y[i] = 0.5 * x[i - lag] + noise[i]
+    return (
+        pd.Series(x, dtype=np.float64, name="X"),
+        pd.Series(y, dtype=np.float64, name="Y"),
+    )
