@@ -229,3 +229,60 @@ class TestStationarityScreener:
             alpha=0.01,
         )
         assert len(report.results) == 2
+
+
+# ---------------------------------------------------------------------------
+# Explicit ADF and KPSS p-value tests (spec requirement)
+# ---------------------------------------------------------------------------
+
+
+class TestADFAndKPSSPValues:
+    """Tests for individual ADF and KPSS p-value fields on canonical series.
+
+    These tests verify the spec requirement that the screener correctly
+    distinguishes between ADF and KPSS decisions on known series.
+    """
+
+    def test_random_walk_adf_fails_to_reject(self) -> None:
+        """Random walk: ADF should fail to reject the unit root null (large p-value)."""
+        series = make_unit_root_series(n=1000, seed=42)
+        df = pd.DataFrame({"rw": series})
+        screener = StationarityScreener()
+        report = screener.screen(df, feature_names=["rw"], asset="BTCUSDT", bar_type="dollar")
+
+        result = report.results[0]
+        # ADF null is unit root; fail to reject => large p-value (> 0.05)
+        assert result.adf_pvalue > 0.05, f"ADF p-value={result.adf_pvalue:.4f} should be > 0.05 for a random walk"
+
+    def test_white_noise_adf_rejects_unit_root(self) -> None:
+        """White noise: ADF should reject the unit root null (small p-value)."""
+        series = make_stationary_series(n=1000, seed=42)
+        df = pd.DataFrame({"wn": series})
+        screener = StationarityScreener()
+        report = screener.screen(df, feature_names=["wn"], asset="BTCUSDT", bar_type="dollar")
+
+        result = report.results[0]
+        # ADF null is unit root; reject => small p-value (< 0.05)
+        assert result.adf_pvalue < 0.05, f"ADF p-value={result.adf_pvalue:.4f} should be < 0.05 for white noise"
+
+    def test_white_noise_kpss_does_not_reject_stationarity(self) -> None:
+        """White noise: KPSS should not reject the stationarity null (large p-value)."""
+        series = make_stationary_series(n=1000, seed=42)
+        df = pd.DataFrame({"wn": series})
+        screener = StationarityScreener()
+        report = screener.screen(df, feature_names=["wn"], asset="BTCUSDT", bar_type="dollar")
+
+        result = report.results[0]
+        # KPSS null is stationarity; fail to reject => large p-value (> 0.05)
+        assert result.kpss_pvalue > 0.05, f"KPSS p-value={result.kpss_pvalue:.4f} should be > 0.05 for white noise"
+
+    def test_random_walk_kpss_rejects_stationarity(self) -> None:
+        """Random walk: KPSS should reject the stationarity null (small p-value)."""
+        series = make_unit_root_series(n=1000, seed=42)
+        df = pd.DataFrame({"rw": series})
+        screener = StationarityScreener()
+        report = screener.screen(df, feature_names=["rw"], asset="BTCUSDT", bar_type="dollar")
+
+        result = report.results[0]
+        # KPSS null is stationarity; reject => small p-value (< 0.05)
+        assert result.kpss_pvalue < 0.05, f"KPSS p-value={result.kpss_pvalue:.4f} should be < 0.05 for a random walk"

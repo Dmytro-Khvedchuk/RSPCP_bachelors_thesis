@@ -414,3 +414,70 @@ class TestEdgeCases:
         assert profile.permutation_entropies is not None
         assert profile.n_eff is not None
         assert profile.breakeven_da is not None
+
+
+# ---------------------------------------------------------------------------
+# Spec-required: sinusoidal series H_norm → 0, AR(1) N_eff ≈ N/3
+# ---------------------------------------------------------------------------
+
+
+class TestPermutationEntropyNearZero:
+    """Tests that a near-deterministic (sinusoidal) series yields H_norm close to 0."""
+
+    def test_sinusoidal_series_low_entropy(self) -> None:
+        """A pure sine wave at d=5 and d=6 should produce H_norm well below the random-walk baseline.
+
+        The permutation entropy of a pure sine wave converges toward 0 as the
+        embedding dimension increases (higher d reveals more of the cyclic
+        ordinal structure).  At d=5 and d=6 with 10 complete cycles in 2000
+        samples, empirically H_norm ≈ 0.18 and 0.14 respectively, which is
+        well below the random-walk baseline of > 0.9.  We use a generous
+        threshold of < 0.30 to accommodate finite-sample variance.
+        """
+        h_norm_max: float = 0.30
+        n_cycles: int = 10
+        n: int = 2000
+        t: np.ndarray[tuple[int], np.dtype[np.float64]] = np.linspace(0, n_cycles * 2 * np.pi, n)
+        sine_data: np.ndarray[tuple[int], np.dtype[np.float64]] = np.sin(t).astype(np.float64)
+        returns = pd.Series(sine_data, dtype=np.float64, name="sine_return")
+
+        # Use d=5,6 where ordinal structure of the sine wave is most visible
+        config = PredictabilityConfig(pe_dimensions=(5, 6))
+        profile = _make_analyzer().analyze(returns, "BTCUSDT", "dollar", SampleTier.A, config=config)
+
+        assert profile.permutation_entropies is not None
+        for pe_result in profile.permutation_entropies:
+            assert pe_result.normalized_entropy < h_norm_max, (
+                f"d={pe_result.dimension}: H_norm={pe_result.normalized_entropy:.4f} "
+                f"should be < {h_norm_max} for a sinusoidal series"
+            )
+
+
+class TestEffectiveSampleSizeAR1:
+    """Tests for Kish effective sample size on AR(1) data with known phi=0.5."""
+
+    def test_ar1_phi05_neff_near_one_third(self) -> None:
+        """AR(1) with phi=0.5: N_eff should be substantially below N.
+
+        For AR(1) with phi=0.5, the theoretical ESS ≈ N * (1 - phi) / (1 + phi)
+        = N * 0.5 / 1.5 ≈ N / 3.  We verify N_eff_ratio is in [0.1, 0.7],
+        which comfortably brackets N/3 ≈ 0.33 while allowing for variance in
+        both the ESS estimator and the synthetic data.
+        """
+        n_eff_lower: float = 0.10
+        n_eff_upper: float = 0.70
+        n: int = 2000
+        rng: np.random.Generator = np.random.default_rng(42)
+        noise: np.ndarray[tuple[int], np.dtype[np.float64]] = rng.normal(0, 0.01, size=n)
+        ar1_data: np.ndarray[tuple[int], np.dtype[np.float64]] = np.zeros(n, dtype=np.float64)
+        for i in range(1, n):
+            ar1_data[i] = 0.5 * ar1_data[i - 1] + noise[i]
+        ar1_returns = pd.Series(ar1_data, dtype=np.float64, name="ar1_phi05")
+
+        profile = _make_analyzer().analyze(ar1_returns, "BTCUSDT", "dollar", SampleTier.A)
+
+        assert profile.n_eff_ratio is not None
+        assert n_eff_lower <= profile.n_eff_ratio <= n_eff_upper, (
+            f"n_eff_ratio={profile.n_eff_ratio:.3f} should be in [{n_eff_lower}, {n_eff_upper}] "
+            f"for AR(1) phi=0.5 (theoretical ≈ 0.33)"
+        )

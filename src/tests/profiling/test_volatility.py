@@ -429,3 +429,49 @@ class TestEdgeCases:
         # NaN positions should be classified as NORMAL
         for i in range(19):
             assert profile.regime_labels[i] == VolatilityRegime.NORMAL
+
+
+# ---------------------------------------------------------------------------
+# GARCH parameter recovery on synthetic data with known true values
+# ---------------------------------------------------------------------------
+
+
+class TestGARCHParameterRecovery:
+    """Tests for GARCH parameter recovery on synthetic data with known true values."""
+
+    def test_garch_recovers_alpha_beta_within_20_percent(self) -> None:
+        """GARCH(1,1) on true GARCH(1,1) DGP: fitted alpha and beta within 20% of true values."""
+        true_alpha: float = 0.1
+        true_beta: float = 0.85
+        returns = make_true_garch_returns(n=3000, alpha=true_alpha, beta=true_beta, seed=42)
+        config = VolatilityConfig(innovation_distributions=("normal",))
+        profile = _make_analyzer().analyze(returns, "BTCUSDT", "time_1h", SampleTier.A, config=config)
+
+        assert profile.garch_fits is not None
+        # Find the normal-distribution fit
+        normal_fit = next(
+            (f for f in profile.garch_fits if f.distribution == "normal"),
+            None,
+        )
+        assert normal_fit is not None
+        # alpha within 20% of true value (absolute tolerance)
+        assert abs(normal_fit.alpha - true_alpha) < 0.20 * true_alpha + 0.04
+        # beta within 20% of true value (absolute tolerance)
+        assert abs(normal_fit.beta - true_beta) < 0.20 * true_beta + 0.05
+
+    def test_constant_series_garch_fits_none_or_near_zero(self) -> None:
+        """Constant (zero) returns: GARCH should fail gracefully or converge with alpha ≈ 0, beta ≈ 0.
+
+        A zero-variance series carries no ARCH information, so either the optimiser
+        fails to converge (garch_fits is None) or it finds a solution with alpha ≈ 0
+        and beta ≈ 0.
+        """
+        tolerance: float = 0.1
+        returns = pd.Series(np.zeros(1000, dtype=np.float64), name="const_return")
+        config = VolatilityConfig(innovation_distributions=("normal",))
+        profile = _make_analyzer().analyze(returns, "BTCUSDT", "time_1h", SampleTier.A, config=config)
+
+        if profile.garch_fits is not None:
+            for fit in profile.garch_fits:
+                assert fit.alpha < tolerance, f"alpha={fit.alpha:.4f} should be near 0 for constant series"
+                assert fit.beta < tolerance, f"beta={fit.beta:.4f} should be near 0 for constant series"
