@@ -78,6 +78,22 @@ Timeframe enum only has: H1, H4, D1.
 - EMA adaptive threshold formula: θ_t = α × |Θ_t| + (1 − α) × θ_{t-1}, where α = 2/(ewm_span+1)
 - READMEs written: src/app/bars/README.md, src/tests/bars/README.md
 
+### profiling Module (Phase 5) — Confirmed Structure
+- `src/app/profiling/` — domain (value_objects.py only), application (5 analyzers + services.py)
+- No infrastructure layer — pure computation; data loading delegated to DataLoader injection
+- `src/tests/profiling/` — 188 tests, flat structure: 8 test files + conftest.py
+  - test_data_partition.py, test_tier_classification.py, test_distribution.py
+  - test_serial_dependence.py, test_volatility.py, test_predictability.py
+  - test_stationarity.py, test_services.py
+- Tier thresholds: A > 2000 samples, B: 500–2000, C < 500
+- GARCH only on time bars (bar_type.startswith("time_")), not on alternative bars
+- GJR-GARCH only fitted when sign_bias.has_leverage_effect=True (Tier A + time bars)
+- BDS test only on Tier A time bars; Granger causality not called by profile_all() — callers supply returns_dict
+- Variance ratio: arch.unitroot.VarianceRatio expects price levels (cumulative sum of returns), not returns directly
+- FDR correction pools: Ljung-Box (returns), Ljung-Box (squared), variance ratio, Granger, BDS, ARCH-LM, sign bias joint F-test
+- ProfilingService loads feature_selection period from DataPartition for data loading
+- README written: src/app/profiling/README.md
+
 ### README Style Decisions
 - No badges (project has no live CI badge URLs)
 - Data flow section as ASCII diagram using boxes and arrows — extend it as new pipeline stages are added
