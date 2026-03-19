@@ -26,7 +26,8 @@ class FeatureValidationResult(BaseModel, frozen=True):
         da_pvalue: Empirical p-value from Ridge DA null distribution.
         da_beats_null: Whether DA empirical p-value < alpha.
         dc_mae: Direction-conditional MAE (only correct-sign predictions).
-        dc_mae_null_mean: Mean DC-MAE from Ridge null distribution.
+        dc_mae_null_mean: Mean DC-MAE from Ridge null distribution, or ``nan``
+            when not computed (DC-MAE is now an observed diagnostic only).
         stability_score: Fraction of temporal windows where MI is significant.
         is_stable: Whether stability_score >= threshold.
         group: Feature group name from prefix mapping.
@@ -46,7 +47,8 @@ class FeatureValidationResult(BaseModel, frozen=True):
     da_beats_null: bool
 
     dc_mae: Annotated[float, PydanticField(ge=0)]
-    dc_mae_null_mean: Annotated[float, PydanticField(ge=0)]
+    dc_mae_null_mean: float
+    """Mean DC-MAE from null distribution, or ``nan`` when not computed."""
 
     stability_score: Annotated[float, PydanticField(ge=0, le=1)]
     is_stable: bool
