@@ -6,8 +6,9 @@ from datetime import datetime, UTC
 from enum import Enum
 from typing import Annotated, Self
 
+import numpy as np
 import polars as pl
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from pydantic import Field as PydanticField
 from pydantic import model_validator
 
@@ -348,3 +349,145 @@ class StationarityReport(BaseModel, frozen=True):
     n_non_stationary: int
     asset: str
     bar_type: str
+
+
+# ---------------------------------------------------------------------------
+# Phase 5B: Autocorrelation & serial dependence value objects
+# ---------------------------------------------------------------------------
+
+
+class AutocorrelationConfig(BaseModel, frozen=True):
+    """Configuration for autocorrelation and serial dependence analysis.
+
+    Attributes:
+        max_lag: Maximum lag order for ACF/PACF computation.
+        ljung_box_lags: Lag values at which to run Ljung-Box tests.
+        alpha: Significance level for hypothesis tests.
+        granger_max_lags: Lag values for Granger causality testing.
+        vr_calendar_horizons_days: Variance ratio horizons in calendar days,
+            converted to bar-count by the analyzer using ``bars_per_day``.
+        vr_robust: Whether to use heteroscedasticity-robust Z2 statistic
+            for the Lo-MacKinlay variance ratio test.
+    """
+
+    max_lag: Annotated[int, PydanticField(ge=1)] = 40
+    ljung_box_lags: tuple[int, ...] = (5, 10, 20, 40)
+    alpha: Annotated[float, PydanticField(gt=0, lt=1)] = 0.05
+    granger_max_lags: tuple[int, ...] = (1, 2, 4, 8)
+    vr_calendar_horizons_days: tuple[float, ...] = (1.0, 3.0, 7.0, 14.0)
+    vr_robust: bool = True
+
+
+class LjungBoxResult(BaseModel, frozen=True):
+    """Ljung-Box test result at a specific lag.
+
+    Attributes:
+        lag: Number of lags tested.
+        q_statistic: Ljung-Box Q statistic.
+        p_value: P-value of the test.
+        significant: Whether the test is significant at the configured alpha.
+    """
+
+    lag: Annotated[int, PydanticField(ge=1)]
+    q_statistic: Annotated[float, PydanticField(ge=0)]
+    p_value: Annotated[float, PydanticField(ge=0, le=1)]
+    significant: bool
+
+
+class VarianceRatioResult(BaseModel, frozen=True):
+    """Lo-MacKinlay variance ratio test result at a specific horizon.
+
+    Attributes:
+        calendar_horizon_days: The calendar horizon (in days) that was tested.
+        bar_count_q: The bar-count aggregation period derived from the horizon.
+        variance_ratio: Estimated variance ratio (VR = 1 under random walk null).
+        z_statistic: Z2 (robust) or Z1 test statistic.
+        p_value: Two-sided p-value of the z-statistic.
+        significant: Whether the test is significant at the configured alpha.
+    """
+
+    calendar_horizon_days: float
+    bar_count_q: Annotated[int, PydanticField(ge=2)]
+    variance_ratio: float
+    z_statistic: float
+    p_value: Annotated[float, PydanticField(ge=0, le=1)]
+    significant: bool
+
+
+class GrangerResult(BaseModel, frozen=True):
+    """Granger causality test result for a single (source, target, lag) pair.
+
+    Attributes:
+        source_name: Label of the source (cause) series.
+        target_name: Label of the target (effect) series.
+        lag: Number of lagged periods tested.
+        f_statistic: F-statistic from the SSR F-test.
+        p_value: P-value of the F-test.
+        significant: Whether the test is significant at the configured alpha.
+    """
+
+    source_name: str
+    target_name: str
+    lag: Annotated[int, PydanticField(ge=1)]
+    f_statistic: float
+    p_value: Annotated[float, PydanticField(ge=0, le=1)]
+    significant: bool
+
+
+class AutocorrelationProfile(BaseModel, frozen=True):
+    """Per-asset, per-bar-type autocorrelation and serial dependence profile.
+
+    Contains ACF/PACF arrays for raw and squared returns, multi-lag
+    Ljung-Box tests, Lo-MacKinlay variance ratios with Chow-Denning
+    joint test, and Granger causality results.  Fields are tier-gated:
+
+    - **All tiers:** ACF/PACF, multi-lag Ljung-Box.
+    - **Tier A/B:** Variance ratio (Tier B capped at 1-week horizon).
+    - **Tier A only:** Granger causality.
+    - **Tier C:** ACF/PACF + Ljung-Box only.
+
+    Attributes:
+        asset: Trading pair symbol (e.g. ``"BTCUSDT"``).
+        bar_type: Bar aggregation type (e.g. ``"dollar"``).
+        tier: Sample-size tier controlling analysis depth.
+        n_observations: Number of return observations analysed.
+        acf_values: ACF of raw returns (lag 0 included).
+        pacf_values: PACF of raw returns (lag 0 included).
+        acf_squared_values: ACF of squared returns.
+        pacf_squared_values: PACF of squared returns.
+        ljung_box_returns: Ljung-Box results on raw returns at multiple lags.
+        ljung_box_squared: Ljung-Box results on squared returns at multiple lags.
+        has_serial_correlation: Any Ljung-Box on returns is significant.
+        has_volatility_clustering: Any Ljung-Box on squared returns is significant.
+        vr_results: Variance ratio results per horizon (Tier A/B only).
+        chow_denning_stat: Chow-Denning joint test statistic (Tier A/B only).
+        chow_denning_pvalue: Chow-Denning p-value via Sidak correction (Tier A/B only).
+        granger_results: Granger causality results (Tier A only).
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    asset: str
+    bar_type: str
+    tier: SampleTier
+    n_observations: Annotated[int, PydanticField(ge=0)]
+
+    # ACF / PACF (all tiers)
+    acf_values: np.ndarray  # type: ignore[type-arg]
+    pacf_values: np.ndarray  # type: ignore[type-arg]
+    acf_squared_values: np.ndarray  # type: ignore[type-arg]
+    pacf_squared_values: np.ndarray  # type: ignore[type-arg]
+
+    # Ljung-Box at multiple lags (all tiers)
+    ljung_box_returns: tuple[LjungBoxResult, ...]
+    ljung_box_squared: tuple[LjungBoxResult, ...]
+    has_serial_correlation: bool
+    has_volatility_clustering: bool
+
+    # Variance ratio (Tier A/B -- None for Tier C)
+    vr_results: tuple[VarianceRatioResult, ...] | None = None
+    chow_denning_stat: float | None = None
+    chow_denning_pvalue: float | None = None
+
+    # Granger causality (Tier A only -- None for Tier B/C)
+    granger_results: tuple[GrangerResult, ...] | None = None
