@@ -1,8 +1,8 @@
 """Shared fixtures and factory functions for profiling module tests.
 
 Provides synthetic data generators for stationarity testing,
-distribution analysis, serial dependence analysis, and reusable
-configuration fixtures.
+distribution analysis, serial dependence analysis, volatility
+modeling, and reusable configuration fixtures.
 """
 
 from __future__ import annotations
@@ -257,3 +257,116 @@ def make_causal_pair(
         pd.Series(x, dtype=np.float64, name="X"),
         pd.Series(y, dtype=np.float64, name="Y"),
     )
+
+
+# ---------------------------------------------------------------------------
+# Volatility modeling helpers
+# ---------------------------------------------------------------------------
+
+
+def make_true_garch_returns(
+    n: int = 2000,
+    omega: float = 0.00001,
+    alpha: float = 0.1,
+    beta: float = 0.85,
+    seed: int = 42,
+) -> pd.Series:  # type: ignore[type-arg]
+    """Generate returns from a true GARCH(1,1) DGP.
+
+    Args:
+        n: Number of return observations.
+        omega: Constant term in the conditional variance equation.
+        alpha: Coefficient for lagged squared returns.
+        beta: Coefficient for lagged conditional variance.
+        seed: Random seed for reproducibility.
+
+    Returns:
+        Pandas Series of GARCH(1,1) returns.
+    """
+    rng = np.random.default_rng(seed)
+    z = rng.standard_normal(n)
+    sigma2 = np.zeros(n, dtype=np.float64)
+    returns = np.zeros(n, dtype=np.float64)
+    sigma2[0] = omega / (1 - alpha - beta)  # unconditional variance
+    returns[0] = np.sqrt(sigma2[0]) * z[0]
+    for i in range(1, n):
+        sigma2[i] = omega + alpha * returns[i - 1] ** 2 + beta * sigma2[i - 1]
+        returns[i] = np.sqrt(sigma2[i]) * z[i]
+    return pd.Series(returns, dtype=np.float64, name="garch_return")
+
+
+def make_gjr_garch_returns(  # noqa: PLR0917
+    n: int = 2000,
+    omega: float = 0.00001,
+    alpha: float = 0.05,
+    gamma: float = 0.15,
+    beta: float = 0.85,
+    seed: int = 42,
+) -> pd.Series:  # type: ignore[type-arg]
+    """Generate returns from a GJR-GARCH(1,1) DGP with leverage effect.
+
+    Args:
+        n: Number of return observations.
+        omega: Constant term in the conditional variance equation.
+        alpha: Coefficient for lagged squared returns.
+        gamma: Asymmetric leverage coefficient (applied to negative returns).
+        beta: Coefficient for lagged conditional variance.
+        seed: Random seed for reproducibility.
+
+    Returns:
+        Pandas Series of GJR-GARCH(1,1) returns.
+    """
+    rng = np.random.default_rng(seed)
+    z = rng.standard_normal(n)
+    sigma2 = np.zeros(n, dtype=np.float64)
+    returns = np.zeros(n, dtype=np.float64)
+    sigma2[0] = omega / (1 - alpha - 0.5 * gamma - beta)
+    returns[0] = np.sqrt(sigma2[0]) * z[0]
+    for i in range(1, n):
+        leverage = gamma * returns[i - 1] ** 2 * (1 if returns[i - 1] < 0 else 0)
+        sigma2[i] = omega + alpha * returns[i - 1] ** 2 + leverage + beta * sigma2[i - 1]
+        returns[i] = np.sqrt(sigma2[i]) * z[i]
+    return pd.Series(returns, dtype=np.float64, name="gjr_garch_return")
+
+
+def make_iid_returns(
+    n: int = 2000,
+    seed: int = 42,
+) -> pd.Series:  # type: ignore[type-arg]
+    """Generate i.i.d. N(0, 0.01) returns with no ARCH effects.
+
+    Args:
+        n: Number of return observations.
+        seed: Random seed for reproducibility.
+
+    Returns:
+        Pandas Series of i.i.d. Normal returns.
+    """
+    rng = np.random.default_rng(seed)
+    data = rng.normal(loc=0.0, scale=0.01, size=n)
+    return pd.Series(data, dtype=np.float64, name="iid_return")
+
+
+def make_nonlinear_returns(
+    n: int = 2000,
+    seed: int = 42,
+) -> pd.Series:  # type: ignore[type-arg]
+    """Generate nonlinear (TAR model) returns for BDS rejection.
+
+    Args:
+        n: Number of return observations.
+        seed: Random seed for reproducibility.
+
+    Returns:
+        Pandas Series of threshold autoregressive returns.
+    """
+    rng = np.random.default_rng(seed)
+    noise = rng.normal(loc=0.0, scale=0.005, size=n)
+    data = np.zeros(n, dtype=np.float64)
+    data[0] = noise[0]
+    for i in range(1, n):
+        if data[i - 1] > 0:
+            data[i] = 0.8 * data[i - 1] + noise[i]
+        else:
+            data[i] = -0.5 * data[i - 1] + noise[i]
+    return pd.Series(data, dtype=np.float64, name="tar_return")
