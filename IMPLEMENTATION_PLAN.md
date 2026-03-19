@@ -968,7 +968,10 @@ not direction (classification).
 
 ## Phase 5: Statistical Profiling
 
-**Goal:** Generate statistical profile per asset to understand data properties and justify modeling choices.
+**Goal:** Generate statistical profile per asset to understand data properties and justify
+modeling choices. Every profiling result must connect to a downstream modeling decision
+("Therefore..."). Phase 5 also hardens the Phase 4D validation pipeline and establishes
+the project-level temporal partition that all subsequent phases must respect.
 
 > **RC1 overlap:** Phase 3 already computed return distributions (JB test, kurtosis, skewness),
 > ACF/PACF analysis, and Ljung-Box tests for BTCUSDT across all bar types. Phase 5 extends
@@ -977,83 +980,507 @@ not direction (classification).
 > from `src/app/research/application/` where applicable (e.g., `ReturnAnalyzer`,
 > `AutocorrelationAnalyzer`) and extend them for the profiling-specific tests below.
 
+> **Review-driven additions (2026-03-19):** Consolidated review by 5 quant-crypto-architect
+> agents identified 16 critical/important issues across statistical methodology, thesis
+> presentation, code gaps, crypto-specific concerns, and data-flow leakage. Phases 5pre
+> through 5H below incorporate all fixes. See `4d_report.md` for the Phase 4D review and
+> the consolidated review discussion for the full finding list.
+
+### 5pre: Foundation & Validation Hardening
+
+> Before any profiling begins, establish the temporal partition that prevents data leakage
+> across phases, install missing dependencies, harden the Phase 4D validation pipeline,
+> and add stationarity screening. Everything downstream depends on this.
+
+#### 5pre.1 — Project-Level Temporal Partition
+
+Define a `DataPartition` config (in `profiling/domain/value_objects.py` or a shared location)
+that declares authoritative data boundaries respected by ALL subsequent phases:
+
+| Partition | Period | Used By |
+|-----------|--------|---------|
+| **Feature selection** | 2020-01-01 → 2022-12-31 | Phase 4D validation (MI, Ridge DA, stability) |
+| **Model development** | 2020-01-01 → 2023-12-31 | Phase 9-10 walk-forward (CPCV within this range) |
+| **Final holdout** | 2024-01-01 → end of data | Phase 14 evaluation only — never touched before |
+
+- Re-run Phase 4D validation restricted to the **feature selection partition** only.
+  The current `kept_feature_names` was computed on full data (2020-2026), which contaminates
+  the holdout. After re-running, the kept set may differ — document any changes in RC2.
+- Update `ValidationConfig.temporal_windows` to cover only the feature selection period:
+  `(2020, 2021), (2021, 2022), (2022, 2023)` (3 windows, not 4).
+- Thread `DataPartition` through `ProfilingService` and downstream phases.
+
+#### 5pre.2 — Install `arch` Package
+
+Phase 5B (VR test) and 5C (GARCH) require the `arch` library. Run `just add arch` and
+verify Python 3.14 compatibility (Cython extensions). If `arch` fails on 3.14, fall back
+to `scipy.optimize`-based GARCH MLE (significantly more implementation work — test early).
+
+#### 5pre.3 — Phase 4D Validation Hardening
+
+**Fix C2 — Move `ridge_train_ratio` to config:**
+- Add `ridge_train_ratio: float = 0.7` to `ValidationConfig`.
+- Thread it through `_run_ridge_test` → `evaluate_single_feature_ridge` and
+  `compute_ridge_null_distribution`. Remove the magic number from the function signature.
+
+**Fix I4 — Remove DC-MAE null distribution waste:**
+- Remove `null_dc_mae` from `compute_ridge_null_distribution` return.
+- Simplify `_run_ridge_test` to only track DA nulls.
+- Keep DC-MAE as a single observed diagnostic (no permutations).
+- Drop `dc_mae_null_mean` from `FeatureValidationResult` or set to `float('nan')`.
+- Net effect: Ridge permutation loop becomes ~2× faster.
+
+**Fix: Block permutation for MI and Ridge null distributions:**
+- Replace `rng.permutation(target)` with **block permutation** in both
+  `compute_mi_null_distribution` and `compute_ridge_null_distribution`.
+- Block size = max feature lookback (configurable via `ValidationConfig.permutation_block_size: int = 50`).
+- Block permutation preserves local autocorrelation and volatility clustering while
+  breaking the feature-target association. Without this, the null hypothesis is
+  "no dependency vs i.i.d. noise" instead of "no dependency vs temporally structured noise,"
+  making it too easy to beat on volatility-clustered crypto data.
+- Alternative (simpler): phase-scramble surrogates (FFT → randomize phases → IFFT).
+  Choose one approach and document the rationale.
+
+**Tests:** Update existing Phase 4D tests to cover:
+- Temporal split correctness (Ridge trains on first 70%, evaluates on last 30%)
+- DC-MAE still computed as a diagnostic (no nulls)
+- Block permutation preserves marginal distribution but breaks temporal alignment
+- Re-run validation on feature selection partition produces valid results
+
+#### 5pre.4 — Stationarity Screen
+
+**`src/app/profiling/application/stationarity.py`** — Before MI/Ridge/profiling, verify
+that all features and return series are stationary:
+
+- Run ADF (null = unit root) and KPSS (null = stationarity) on each of the 23 features
+  and on the return series, per (asset, bar_type).
+- **Confirmation approach:** ADF rejects unit root AND KPSS fails to reject stationarity
+  → stationary. Both reject → trend-stationary. Neither rejects → unit root.
+- Features that fail stationarity:
+  - `atr_14` → replace with `atr_14 / close` (percentage ATR) in `indicators.py`
+  - `amihud_24` → apply rolling z-score (already done for volume; extend to Amihud)
+  - `hurst_100`, `bbwidth_20_2.0` → apply fractional differentiation with minimum d
+    that achieves stationarity (López de Prado Ch. 5), or first-difference
+- Store results in `StationarityReport` Pydantic model: per-feature ADF statistic,
+  ADF p-value, KPSS statistic, KPSS p-value, is_stationary flag, transformation applied.
+- Output table goes directly into RC2.
+
+#### 5pre.5 — Sample-Size Tier Classification
+
+Define bar-type tiers based on usable sample size (after warmup/NaN removal) that gate
+which tests are valid. Add to `ProfilingConfig`:
+
+| Tier | N threshold | Test battery | Expected bar types |
+|------|-------------|--------------|-------------------|
+| **A** | N > 2000 | Full battery | dollar, volume, time_1h |
+| **B** | 500 ≤ N ≤ 2000 | Reduced: Student-t only (no GH), VR capped at q=10, GARCH(1,1) only (no GJR), 2 stability half-windows instead of 3 yearly | — |
+| **C** | N < 500 | Descriptive statistics only — no asymptotic inference | volume_imbalance, dollar_imbalance (after warmup) |
+
+- `ProfilingService` classifies each (asset, bar_type) into a tier before dispatching tests.
+- Tier is stored in `StatisticalReport` and displayed prominently in RC2.
+- Imbalance bar results are explicitly labeled "exploratory" in all outputs.
+
 ### 5A: Return Distribution Analysis
 
-- **`src/app/profiling/application/distribution.py`** — Per-asset, **per-bar-type** (dollar, volume, volume_imbalance, dollar_imbalance, time_1h):
-  - Log return computation (already done in RC1 for BTCUSDT — extend to all 4 assets)
-  - Normality tests: Jarque-Bera (already in RC1), Shapiro-Wilk, Anderson-Darling
-  - Alternative distribution fitting: Student-t, Generalized Hyperbolic
-  - Model comparison: AIC, BIC, KS goodness-of-fit
-  - Output: `DistributionProfile` Pydantic model
+- **`src/app/profiling/application/distribution.py`** — Per-asset, **per-bar-type**, **tier-gated**:
+  - Log return computation (reuse `ReturnAnalyzer.compute_log_returns()`)
+  - Normality test: **Jarque-Bera only** (Shapiro-Wilk removed — invalid for N > 5000,
+    and at these sample sizes all normality tests trivially reject on financial data;
+    Anderson-Darling adds no information beyond JB)
+  - Report **effect sizes** alongside JB: excess kurtosis, skewness, QQ-deviation integral
+  - **Alternative distribution fitting (Tier A/B only):**
+    - Student-t via MLE → report fitted degrees of freedom ν (the primary tail-heaviness metric)
+    - **No Generalized Hyperbolic** — 5-parameter GH is intractable on N < 1000, has poor
+      Python support, and downstream models don't use the distributional parameters.
+      If examiner asks: use NIG (Normal Inverse Gaussian, 4-param GH subfamily) as fallback.
+    - Optional: 2-component Gaussian Mixture (captures bimodality from regime mixing)
+  - **Model comparison:** AIC, BIC between Normal and Student-t.
+    KS test statistic D_n reported as a **distance measure** (not for inference — KS p-values
+    are anti-conservative for fitted distributions since critical values assume known parameters).
+  - **QQ-plots against fitted Student-t** (not Normal — Normal QQ is already known to fail
+    and provides no new information). Update `ReturnAnalyzer.compute_qq_data()` or add
+    a new method that accepts the fitted distribution.
+  - Output: `DistributionProfile` Pydantic model (frozen=True) with:
+    `jb_stat`, `jb_pvalue`, `excess_kurtosis`, `skewness`, `student_t_nu`,
+    `student_t_nu_ci_lower`, `student_t_nu_ci_upper`, `aic_normal`, `aic_student_t`,
+    `bic_normal`, `bic_student_t`, `ks_d_statistic`, `tier`
 
 ### 5B: Autocorrelation & Serial Dependence
 
-- **`src/app/profiling/application/autocorrelation.py`** — Per-asset, **per-bar-type**:
-  - ACF/PACF of returns and squared returns (extend RC1's BTCUSDT results to all 4 assets)
-  - Ljung-Box test for serial correlation (extend RC1 results)
-  - **Lo-MacKinlay variance ratio test** at multiple horizons q = {2, 5, 10, 20} — not yet done in RC1
-  - Output: `AutocorrelationProfile` with test statistics and p-values
+- **`src/app/profiling/application/autocorrelation.py`** — Per-asset, **per-bar-type**, **tier-gated**:
+  - ACF/PACF of returns and squared returns (reuse `AutocorrelationAnalyzer`)
+  - **Ljung-Box at multiple lags** `[5, 10, 20, 40]` (not just the max lag — single-max-lag
+    Ljung-Box masks short-horizon serial dependence diluted by many zero-autocorrelation lags).
+    Existing `AutocorrelationAnalyzer.compute_acf_analysis()` runs Ljung-Box at a single
+    effective lag — extend or override.
+  - **Lo-MacKinlay variance ratio test** — **heteroscedasticity-robust Z2 only** (Z1
+    homoscedastic variant is inappropriate for crypto with GARCH effects):
+    - **Horizons defined in calendar time**, converted to bar-count per bar type:
+      | Calendar horizon | time_1h (24/day) | dollar (~2.3/day) | volume (~1.5/day) |
+      |-----------------|-------------------|--------------------|--------------------|
+      | 1 day | q=24 | q=2 | q=2 |
+      | 3 days | q=72 | q=7 | q=5 |
+      | 1 week | q=168 | q=16 | q=11 |
+      | 2 weeks | q=336 | q=33 | q=22 |
+    - For Tier B/C: cap at the "1 week" horizon (skip 2 weeks).
+    - Consider **Chow-Denning (1993) multiple VR test** which tests all horizons jointly,
+      avoiding the multiple-testing problem of 4 separate tests.
+    - Use `arch.unitroot.VarianceRatio` with `robust=True`.
+  - **Granger causality test** (Tier A only):
+    - `statsmodels.tsa.stattools.grangercausalitytests`
+    - Test: does BTC return Granger-cause ETH/LTC/SOL return? Does volume Granger-cause returns?
+    - Lags = [1, 2, 4, 8]. Report F-statistic and p-value.
+    - Referenced in statistical testing framework (F1) as "RC2" deliverable — build the
+      service here so RC2 can consume it cleanly.
+  - Output: `AutocorrelationProfile` with:
+    `ljung_box_stats` (dict of lag → (Q, p)), `vr_stats` (dict of horizon → (VR, Z2, p)),
+    `chow_denning_stat`, `chow_denning_p`, `granger_results` (list per pair),
+    `acf_values`, `pacf_values`, `tier`
 
 ### 5C: Volatility Modeling
 
-- **`src/app/profiling/application/volatility.py`** — Per-asset:
-  - GARCH(1,1) and GJR-GARCH fit
-  - Residual diagnostics (i.i.d. tests)
-  - Rolling realized volatility
-  - Output: `VolatilityProfile`
+- **`src/app/profiling/application/volatility.py`** — **time_1h bars only** (GARCH assumes
+  equally-spaced observations; dollar/volume/imbalance bars have non-uniform spacing with
+  inter-bar duration CV = 0.93–2.0+, making GARCH methodologically unsound on them):
+  - **Innovation distribution comparison:** Fit GARCH(1,1) with Normal, Student-t, and
+    Skewed Student-t innovations (`arch` library: `dist='normal'`, `dist='t'`, `dist='skewt'`).
+    Select best by AIC/BIC. **Always report the Student-t result** as the primary.
+  - **Engle-Ng sign bias test** before GJR-GARCH: formally verify that leverage effects
+    exist (negative shocks increase volatility more than positive). If sign bias is not
+    significant, skip GJR and report GARCH(1,1) as sufficient.
+  - **GJR-GARCH** (Tier A only, if sign bias significant):
+    Fit with Student-t innovations. Report gamma (asymmetry), alpha, beta, omega.
+  - **GARCH persistence check:** Report alpha + beta. Flag any (asset) where
+    persistence ≥ 0.99 as potentially integrated (IGARCH). If alpha + beta ≥ 1,
+    the unconditional variance does not exist → downstream VR test interpretation is affected.
+  - **ARCH-LM test on GARCH residuals:** Verify that GARCH captured all volatility
+    clustering (Ljung-Box on z_t² should not reject after GARCH).
+  - **BDS test on standardized GARCH residuals** (embedding dimensions m = {2, 3, 4, 5}):
+    If BDS rejects i.i.d. at multiple dimensions → nonlinear structure remains after
+    GARCH → justifies using nonlinear ML models in Phase 9. If BDS does NOT reject →
+    document honestly that linear volatility models may suffice.
+  - **Rolling realized volatility** (all bar types, not just time_1h):
+    - Reuse `rv_12`, `rv_24`, `rv_48` from Phase 4A feature set where applicable.
+    - Window defined in **calendar time** (not bar count) for cross-bar-type comparability.
+    - **Quantile-based regime labeling:** low-vol (below 25th percentile), normal (25th-75th),
+      high-vol (above 75th). Store regime labels per bar for downstream use.
+  - For **information-driven bars** (dollar, volume, imbalance): use existing volatility
+    features (GK, Parkinson, ATR, RV) from Phase 4A as the volatility profile instead
+    of GARCH. No GARCH fitting on non-uniform bars.
+  - Output: `VolatilityProfile` (frozen=True) with:
+    `garch_alpha`, `garch_beta`, `garch_omega`, `garch_persistence`, `garch_dist`,
+    `garch_aic_normal`, `garch_aic_t`, `garch_aic_skewt`, `gjr_gamma` (if applicable),
+    `sign_bias_p`, `arch_lm_p`, `bds_results` (dict of m → (stat, p)),
+    `nonlinear_structure_detected`, `regime_labels`, `tier`
 
-### 5D: Profiling Service
+### 5D: Predictability Assessment
 
-- **`src/app/profiling/application/services.py`** — `ProfilingService` that runs all analyses for a list of assets, aggregates into a `StatisticalReport` DataFrame, logs/saves results.
+> New sub-phase. Directly confronts reference paper R5 (crypto ≈ Brownian noise) and
+> provides the quantitative foundation for the RC2 "Is our data predictable?" section.
+> Without this, a thesis examiner can challenge the entire modeling effort.
 
-### 5E: Tests
+- **`src/app/profiling/application/predictability.py`** — Per-asset, **per-bar-type**:
+  - **Permutation entropy** (Bandt & Pompe, 2002):
+    - Embedding dimension d = {3, 4, 5, 6}, delay τ = 1.
+    - Normalized permutation entropy H_norm ∈ [0, 1]. H_norm → 1 = Brownian noise.
+    - Compare against R5's reported values for BTC/ETH. Position each (asset, bar_type)
+      on the **complexity-entropy plane** (H vs. Jensen-Shannon complexity C).
+    - If information-driven bars (dollar, volume) show lower entropy than time bars,
+      that is a thesis-worthy finding: "information-driven sampling extracts structure
+      that uniform sampling misses."
+  - **Effective sample size** (Kish formula):
+    `N_eff = N / (1 + 2 · Σ ρ_k)` for k = 1 to Bartlett bandwidth.
+    Applied to return-level autocorrelation (for mean inference).
+    Report `N_eff / N` ratio per (asset, bar_type) — this is the "autocorrelation tax."
+  - **Minimum Detectable Effect (MDE) for directional accuracy:**
+    Given N_eff, α = 0.05, power = 0.80, compute the minimum DA above 50% that is
+    reliably detectable using a one-sided binomial test.
+    - For dollar bars (N_eff ≈ 3000-5000): MDE ≈ 1.3-1.8% → DA ≥ 51.3%
+    - For imbalance bars (N_eff ≈ 200-400): MDE ≈ 4-5% → DA ≥ 54% (too coarse to detect weak edges)
+    Use `statsmodels.stats.power` or direct binomial calculation.
+  - **Minimum viable DA from transaction costs:**
+    Define break-even DA: `(2p - 1) · mean(|r_t|) > round_trip_cost` where
+    round_trip_cost = 2 × 10 bps = 0.002 (Binance spot). Solve for p.
+    This is the concrete, economically grounded threshold for the RC2 go/no-go.
+  - **Signal-to-noise ratio:**
+    Adjusted R² from multivariate Ridge regression of kept features on target,
+    computed on a **temporal holdout** (last 30% of feature selection partition).
+    Compare against R² from regressing on random Gaussian features (noise baseline).
+  - Output: `PredictabilityProfile` (frozen=True) with:
+    `permutation_entropies` (dict of d → H_norm), `js_complexity`, `n_eff`, `n_eff_ratio`,
+    `mde_da`, `breakeven_da`, `snr_r2`, `snr_r2_noise_baseline`, `tier`
 
-- Unit test: each test against known synthetic data (e.g., normal data should not reject Jarque-Bera)
-- Sanity test: GARCH on constant series should have near-zero alpha/beta
+### 5E: Profiling Service & Config
 
-**Dependencies:** Phase 1 (data), `scipy.stats`, `statsmodels`, `arch`
-**Estimated scope:** ~8 files, ~600 lines
+- **`src/app/profiling/domain/value_objects.py`** — Pydantic config classes (no magic numbers):
+  - `DistributionConfig` — JB alpha, list of alternative distributions, KS reporting
+  - `AutocorrelationConfig` — Ljung-Box lags `[5, 10, 20, 40]`, VR calendar horizons,
+    Granger max lags, significance alpha
+  - `VolatilityConfig` — GARCH order (p,q), innovation distributions to compare,
+    BDS embedding dimensions, RV window (calendar time), regime quantile thresholds
+  - `PredictabilityConfig` — permutation entropy embedding dimensions, Kish bandwidth,
+    power analysis parameters (alpha, power target), round-trip cost for break-even DA
+  - `ProfilingConfig` — composite of the above + `DataPartition` reference + tier thresholds
+
+- **`src/app/profiling/application/services.py`** — `ProfilingService`:
+  - Takes `DataLoader` as dependency (same pattern as RC1 `CoverageAnalyzer`)
+  - Iterates over (asset, bar_type) combinations via `DataLoader.get_available_bar_configs()`
+  - Classifies each into Tier A/B/C based on usable N
+  - Dispatches to distribution, autocorrelation, volatility, predictability analyzers
+    with tier-appropriate test batteries
+  - Aggregates into `StatisticalReport` (per-asset-bar-type profiles + cross-asset summary)
+  - Conversion boundary: `pl.DataFrame → pd.DataFrame` at service entry point
+    (same pattern as `validation.py`)
+
+- **Multiple comparison correction across Phase 5:**
+  - For **characterization tests** (normality, GARCH diagnostics): report effect sizes, not p-values.
+    These tests are descriptive — binary reject/not-reject is uninformative at N > 1000.
+  - For **inferential tests** (Ljung-Box, VR, Granger, BDS): apply **Benjamini-Hochberg FDR
+    correction** across the full grid of (asset, bar_type, test, lag/horizon) combinations.
+    Report both raw and corrected p-values. Store in `StatisticalReport.corrected_pvalues`.
+
+### 5F: Tests
+
+- **`src/tests/profiling/conftest.py`** — Synthetic data factories:
+  - `make_normal_returns(n, seed)` — for normality test calibration
+  - `make_student_t_returns(n, nu, seed)` — for distribution fitting validation
+  - `make_ar1_returns(n, phi, seed)` — for autocorrelation test validation
+  - `make_garch_returns(n, alpha, beta, seed)` — for GARCH fitting (known parameters)
+  - `make_random_walk(n, seed)` — for VR test (should not reject VR=1)
+  - `make_profiling_config()` — factory with fast defaults (reduced permutations, fewer lags)
+
+- **Unit tests (per sub-module):**
+  - `test_distribution.py`:
+    - Normal data should not reject JB at α = 0.05
+    - Student-t(5) data: fitted ν should be in [4, 7] confidence interval
+    - AIC(Student-t) < AIC(Normal) on fat-tailed data
+  - `test_autocorrelation.py`:
+    - White noise: Ljung-Box should not reject at any lag
+    - AR(1) with φ = 0.3: Ljung-Box should reject at lag 5
+    - Random walk: VR(q) should be ≈ 1.0 for all q
+    - Known Granger relationship: F-test should reject
+  - `test_volatility.py`:
+    - GARCH(1,1) on synthetic GARCH data: recovered α, β within 20% of true values
+    - Constant series: α ≈ 0, β ≈ 0
+    - BDS on i.i.d. normal: should NOT reject
+    - BDS on GARCH residuals with remaining nonlinearity: should reject
+  - `test_predictability.py`:
+    - Random walk: permutation entropy H_norm → 1.0 (within 0.05)
+    - Deterministic series (e.g., sin): H_norm → 0
+    - ESS of i.i.d. data: N_eff ≈ N
+    - ESS of AR(1) with φ = 0.5: N_eff ≈ N/3
+  - `test_stationarity.py`:
+    - Random walk (non-stationary): ADF should fail to reject
+    - White noise (stationary): ADF should reject, KPSS should not reject
+  - `test_services.py`:
+    - `ProfilingService` tier classification: synthetic data with known N produces correct tier
+    - Full pipeline on small synthetic dataset produces valid `StatisticalReport`
+
+- **Sanity tests (integration-level):**
+  - Real BTCUSDT dollar bar data: GARCH persistence < 1.0
+  - Real data: permutation entropy within [0.85, 1.0] (consistent with R5)
+  - Real data: stationarity report flags known non-stationary features
+
+**Dependencies:** Phase 1 (data), Phase 4 (features), `scipy.stats`, `statsmodels`, `arch`
+**Estimated scope:** ~15 files, ~1500 lines
 
 ---
 
 ## Phase 6: Research Checkpoint 2 — Features, Profiling & Data Adequacy
 
 **Goal:** Deep analysis of features and statistical properties. Answer: "Is our data
-sufficient and do our features carry signal for return regression?"
+sufficient and do our features carry signal for return regression?" Every section must
+connect to a modeling decision ("Therefore..."). Negative results are documented honestly.
+
+> **Thesis narrative structure:** RC2 is not a sequence of tables — it tells a story with
+> three claims: (1) our features carry genuine information, (2) returns exhibit structure
+> beyond random walks, (3) our sample is adequate for ML modeling. Each section builds
+> evidence for or against these claims, culminating in a formal go/no-go decision.
+
+> **Pre-registration:** Before opening the RC2 notebook, write the decision rules in a
+> markdown cell at the top. All feature selection, asset universe, and horizon choices
+> must follow mechanical rules defined before seeing the data. Post-hoc decisions
+> (human judgment after seeing results) are documented as "trials" for the Phase 14
+> Deflated Sharpe Ratio. This reduces researcher degrees of freedom.
 
 ### 6A: Notebook `research/RC2_features_and_profiling.ipynb`
 
-**Feature exploration:**
-- Feature correlation matrix → heatmap (identify redundant features)
-- Feature distributions → violin plots, detect skew/outliers
-- Feature-target scatter plots (feature vs forward_log_return) → visual inspection of relationships
-- Mutual information results table with p-values → which features pass validation?
-- Single-feature Ridge DA table → any feature alone predict direction better than 50%?
-- Stability heatmap: feature × year → which features are stable across time?
+#### Section 1: Pre-Registration & Decision Rules
 
-**Statistical profiling results:**
-- Return distribution per asset: histogram + fitted Student-t overlay
-- Table: Jarque-Bera p-value, kurtosis, skewness, best-fit distribution per asset
-- ACF/PACF plots for top-5 assets → exploitable autocorrelation?
-- Ljung-Box results table → serial dependence significance
-- GARCH parameter table (alpha, beta, omega) per asset
-- Rolling volatility time series per asset → regime identification
+Define mechanical decision criteria before any analysis:
+- "Keep all features that pass the three-gate validation on the feature selection partition"
+- "Keep all assets with > 1000 usable bars on the primary bar type (dollar)"
+- "Use forecast horizons where ACF of returns is significant at lag 1 after BH correction"
+- "Minimum viable DA = break-even DA from Phase 5D (transaction-cost threshold)"
+- "If no features pass validation → report honestly and discuss longer horizons or alternative targets"
+- Document these rules in a dedicated cell. Any deviation is flagged as post-hoc.
 
-**Data adequacy assessment:**
-- Sample size per asset (after warmup/NaN removal)
-- Effective sample size (accounting for autocorrelation)
-- Signal-to-noise ratio estimate: how much variance do features explain?
-- Power analysis: given sample size and effect size, can we detect real effects?
-- Cross-asset consistency: do features behave similarly across assets?
+#### Section 2: Stationarity Report
+
+- Table: feature × (ADF p, KPSS p, is_stationary, transformation_applied) from Phase 5pre.4
+- Highlight non-stationary features and their transformations
+- **Therefore:** "All features entering validation and profiling are stationary, preventing
+  spurious MI/Ridge results from shared trends."
+
+#### Section 3: Feature Exploration (ALL features, not just kept)
+
+> Show all 23 features side-by-side. The kept/dropped partition is a **color-coded overlay**,
+> not a filter. This prevents confirmation bias from profiling only survivors.
+
+- Feature correlation matrix → heatmap (all features, kept features highlighted)
+- Feature distributions → violin plots (all features, grouped by kept/dropped)
+- Feature-target scatter plots → visual inspection (kept features only, to keep it readable)
+- **MI results table** with columns: feature, MI (nats), raw p-value, BH-corrected p-value,
+  mi_significant, **MI as % of target entropy** (effect size, not just significance)
+- **Ridge DA table** with columns: feature, DA_observed, DA_null_mean, **DA excess (pp)**,
+  DA p-value, da_beats_null. Highlight features where DA excess < 1 pp (statistically
+  significant but practically negligible).
+- **Stability heatmap:** feature × temporal window (from feature selection partition),
+  colored by per-window MI significance. Annotate windows with regime labels (bull/bear/range).
+- **Feature importance comparison across bar types:** x-axis = features, y-axis = MI score,
+  grouped by bar type. If dollar bars consistently produce higher MI → thesis-worthy finding.
+- **Validation confirmation on holdout preview:** Re-run MI and Ridge DA on 2023 data only
+  (the first year of model development period, NOT the final holdout). Report how many
+  features retain significance. If features lose significance → flag feature selection
+  instability.
+
+#### Section 4: Confronting R5 — Is Our Data Predictable?
+
+> Dedicated section addressing the thesis's most dangerous question. Must be present and
+> thorough — a thesis examiner will ask about this.
+
+- **Permutation entropy table:** (asset, bar_type) → H_norm at d = {3, 4, 5, 6}
+  Compare against R5's reported values for BTC/ETH.
+- **Complexity-entropy plane:** Scatter plot positioning each (asset, bar_type) relative
+  to the Brownian noise boundary. If information-driven bars show lower entropy than
+  time bars → "information-driven sampling extracts structure that uniform sampling misses."
+- **Variance ratio profile chart:** x-axis = calendar horizon, y-axis = VR(q), horizontal
+  line at VR = 1 (random walk). Each asset gets a line. Interpret:
+  VR < 1 at short horizons = mean reversion, VR > 1 at long horizons = momentum.
+- **Interpretation paragraph:** "Our data shows [VR significantly different from 1 at
+  horizons X, permutation entropy Y]. This [confirms/partially confirms/contradicts] R5.
+  The recommender's value is knowing WHEN not to trade: in high-entropy regimes, the
+  system should abstain."
+
+#### Section 5: Statistical Profiling Results
+
+- **Return distribution per asset per bar type:**
+  - Histogram + fitted Student-t PDF overlay (not Normal — Normal overlay is uninformative)
+  - QQ-plot against **fitted Student-t** quantiles
+  - Table: JB statistic, excess kurtosis, skewness, fitted ν, AIC(Normal), AIC(Student-t),
+    best-fit distribution per (asset, bar_type)
+  - **Therefore:** "Returns follow Student-t with ν ≈ X, confirming fat tails. This motivates
+    robust loss functions (Huber loss) in regression and Student-t error terms in GARCH."
+
+- **Autocorrelation analysis:**
+  - ACF/PACF plots for returns and squared returns (all 4 assets, primary bar type)
+  - Ljung-Box results table at lags [5, 10, 20, 40] with BH-corrected p-values
+  - **Therefore:** "Squared returns show significant autocorrelation → ARCH effects present
+    → volatility features justified. Raw returns show [significant/no] autocorrelation
+    at short horizons → [supports/does not support] short-horizon forecasting."
+
+- **Variance ratio results:**
+  - Table: (asset, bar_type, calendar_horizon) → VR, Z2, BH-corrected p-value
+  - Present VR as a profile chart (not just a table) — immediate visual comparison
+  - **Therefore:** "VR(1 day) ≠ 1 for [assets] → short-horizon predictability exists,
+    supporting our choice of 1-4 bar forecast horizons."
+
+- **Granger causality table** (Tier A bar types only):
+  - (source_asset, target_asset, lag) → F-stat, p-value, significant?
+  - **Therefore:** "BTC [does/does not] Granger-cause ETH → [supports/does not support]
+    cross-asset features in the recommendation system."
+
+- **GARCH results (time_1h only):**
+  - Parameter table: (asset) → α, β, ω, persistence, ν_innovation, best-fit dist (AIC)
+  - Sign bias test results → GJR-GARCH justified for [assets] / not justified
+  - ARCH-LM on residuals → GARCH captured all volatility clustering? [yes/no]
+  - **BDS test results:** (asset, m) → BDS stat, p-value. Flag if nonlinear structure remains.
+  - **Therefore:** "GARCH(1,1) with Student-t innovations captures volatility dynamics for
+    [assets]. BDS [rejects/does not reject] i.i.d. on residuals → nonlinear ML models
+    [are/are not] justified beyond GARCH."
+
+- **Rolling volatility + regime labeling:**
+  - Time series plot: rolling RV with regime bands (low/normal/high) overlaid
+  - Per-regime summary statistics: mean return, volatility, sample count
+  - **Therefore:** "We identify N regimes. Feature informativeness [varies/does not vary]
+    across regimes → [supports/does not support] regime-conditional modeling."
+
+#### Section 6: Data Adequacy Assessment
+
+- **Sample size table:** (asset, bar_type) → N_raw, N_after_warmup, N_eff, N_eff/N ratio, tier
+- **Minimum Detectable Effect table:** (asset, bar_type) → MDE (DA above 50%),
+  break-even DA (from transaction costs). Flag bar types where MDE > break-even DA
+  (cannot detect economically meaningful edges).
+- **Signal-to-noise ratio:** (asset, bar_type) → adjusted R² (kept features vs target),
+  R² noise baseline (random features). If R² ≈ R²_noise → features explain nothing.
+- **Power analysis summary:** "With N_eff = X for dollar bars, we can detect DA ≥ Y%
+  at 80% power. The break-even DA is Z%. Since Y [</>] Z, detection of economically
+  meaningful edges [is/is not] feasible."
+- **Cross-asset consistency:**
+  - Rank correlation (Kendall's τ) of feature MI scores across assets. High τ = same
+    features are informative everywhere → shared model justified. Low τ = asset-specific
+    feature selection needed.
+  - Heatmap: features × assets, colored by keep/drop → visual synthesis
+  - Profiling metric correlation: are kurtosis, VR, GARCH parameters similar across assets?
+  - **Synthesis paragraph:** "N features are universally informative, M features are
+    asset-specific, K features should be dropped everywhere."
+
+- **Imbalance bar viability verdict:**
+  - Per-window N for imbalance bars. Flag windows with < 100 rows.
+  - "Imbalance bars (Tier C, N ≈ 430 after warmup) cannot support reliable asymptotic
+    inference. Phase 4D validation on imbalance bars has MDE ≈ X% — only very strong
+    effects are detectable. Results are exploratory."
+  - Decision: keep imbalance bars as exploratory or drop from modeling phases.
+
+#### Section 7: Baseline Comparisons
+
+> Establish the floor before claiming features add value.
+
+- **Buy-and-hold return and Sharpe** per asset over the feature selection period
+  (2020-2022). This is the bar to clear.
+- **Random walk forecast baseline:** predict next-bar return = 0 → DA = 50.0%, DC-MAE = raw MAE.
+  This is the null model for all subsequent DA comparisons.
+- **Coin-flip baseline:** random ±1 direction predictions → expected DA = 50%, expected
+  DC-MAE. This is the absolute floor for directional models.
+- Frame ALL feature DA results relative to baselines: "Our best feature achieves DA = X%
+  vs. random DA = 50.0%, a Y pp improvement (p = Z after BH correction)."
+
+#### Section 8: Multi-Horizon Validation
+
+> Phase 4D validates against `fwd_logret_1` only. If modeling uses multiple horizons
+> (1, 4, 24), the feature set must be validated per horizon.
+
+- Run MI and Ridge DA for `fwd_logret_4` and `fwd_logret_24` on the feature selection
+  partition (using `ValidationConfig.target_col` override).
+- Table: features × horizons → MI significance, DA excess. Show where signal concentrates.
+- "Most features carry information about the [1/4/24]-bar horizon. This informs forecast
+  horizon selection for Phase 9-10."
+- Decision: which horizons proceed to modeling?
+
+#### Section 9: Go/No-Go Decision
+
+**Formal decision table** (mechanical, based on pre-registered rules):
+
+| Criterion | Threshold | Result | Decision |
+|-----------|-----------|--------|----------|
+| Features passing validation | ≥ 5 | ? | go / no-go |
+| DA excess over baseline | ≥ break-even DA for ≥ 1 bar type | ? | go / no-go |
+| Permutation entropy | H_norm < 0.98 for ≥ 1 bar type | ? | go / no-go |
+| N_eff | ≥ 1000 for primary bar type | ? | go / no-go |
+| Cross-asset consistency (τ) | τ > 0 (significant) | ? | shared / asset-specific |
+| BDS on GARCH residuals | rejects i.i.d. | ? | nonlinear / linear models |
 
 **Decision output:**
-- Final feature set (keep/drop decisions with justification)
-- Final asset universe (drop assets with insufficient data or anomalous properties)
-- Appropriate forecast horizons (based on autocorrelation analysis)
-- Is regression feasible? Expected DA range? Is DA > 50% achievable?
-- Bar type confirmation (RC1 selected: dollar, volume, volume_imbalance, dollar_imbalance + time_1h baseline — RC2 validates whether feature quality supports this selection or narrows it further)
+- Final feature set per horizon (keep/drop with justification)
+- Final asset universe (drop assets failing adequacy)
+- Confirmed bar types (Tier A proceed to modeling, Tier C dropped or exploratory-only)
+- Confirmed forecast horizons
+- Model complexity recommendation: linear-only vs. nonlinear (based on BDS)
+- Is regression feasible? Expected DA range. If DA excess < break-even for all
+  combinations → "negative result — document honestly, discuss longer horizons,
+  alternative targets, or the recommender's value as a NO-TRADE filter."
 
-**Estimated scope:** 1 notebook, ~400 cells
+**Estimated scope:** 1 notebook, ~500 cells
 
 ---
 
