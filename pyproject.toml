@@ -130,13 +130,16 @@ convention = "google"
     "S101",    # assert is fine in tests
     "S105",    # hardcoded fake passwords are intentional
     "S106",    # hardcoded fake passwords are intentional
+    "ANN",     # test code doesn't need strict type annotations
+    "D",       # test code doesn't need docstrings
+    "DOC",     # test code doesn't need Raises/Returns sections
     "PLR6301", # test methods don't use self — pytest requires instance methods
     "PLR2004", # magic values in assertions are idiomatic (assert len(x) == 2)
     "PLR0904", # too many public methods — test classes naturally exceed 20
     "PLR0913", # too many arguments — factory helpers and _make_bar need many params
+    "PLR0917", # too many positional arguments — test factories need many params
     "ARG001",  # unused function arguments in factories are intentional (forward compat)
     "ARG002",  # unused fixture args trigger side-effects (e.g. set_binance_env)
-    "DOC501",  # test docstrings don't need Raises sections
     "PT012",   # multi-statement pytest.raises blocks are acceptable
     "PT017",   # assertion on exception in except block (testing chaining)
     "TRY301",  # raise-in-try is the point of exception tests
