@@ -158,6 +158,23 @@ class StationarityScreener:
                 msg: str = f"Feature '{fname}' contains NaN or inf values"
                 raise ValueError(msg)
 
+            # Constant series cannot be tested — classify as "inconclusive"
+            if series.max() == series.min():
+                logger.warning("Feature '{}' is constant — skipping ADF/KPSS, marking inconclusive", fname)
+                results.append(
+                    StationarityTestResult(
+                        feature_name=fname,
+                        adf_statistic=0.0,
+                        adf_pvalue=1.0,
+                        kpss_statistic=0.0,
+                        kpss_pvalue=1.0,
+                        is_stationary=False,
+                        classification="inconclusive",
+                        suggested_transformation=_suggest_transformation(fname),
+                    ),
+                )
+                continue
+
             adf_stat: float
             adf_pval: float
             adf_stat, adf_pval = _run_adf(series)
