@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RSPCP — RC2 Research Checkpoint</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+  :root {
+    --bg: #000;
+    --fg: #f5f5f7;
+    --accent: #2997ff;
+    --accent2: #bf5af2;
+    --accent3: #30d158;
+    --accent4: #ff9f0a;
+    --accent5: #ff375f;
+    --dim: #86868b;
+    --card: #1d1d1f;
+    --card-border: #333;
+    --gradient-1: linear-gradient(135deg, #2997ff 0%, #bf5af2 100%);
+    --gradient-2: linear-gradient(135deg, #30d158 0%, #2997ff 100%);
+    --gradient-3: linear-gradient(135deg, #ff9f0a 0%, #ff375f 100%);
+    --gradient-4: linear-gradient(135deg, #5e5ce6 0%, #bf5af2 100%);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    overflow: hidden;
+    height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .deck { position: relative; width: 100vw; height: 100vh; }
+
+  .slide {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; justify-content: center; align-items: center;
+    padding: 60px 80px;
+    opacity: 0; pointer-events: none; overflow-y: auto;
+    transition: opacity 0.5s cubic-bezier(.4,0,.2,1), transform 0.5s cubic-bezier(.4,0,.2,1);
+    will-change: opacity, transform;
+    transform: translateX(80px);
+  }
+  .slide.active { opacity: 1; transform: translateX(0); pointer-events: auto; }
+  .slide.exit-left { opacity: 0; transform: translateX(-80px); }
+  .slide.exit-right { opacity: 0; transform: translateX(80px); }
+  .slide.enter-left { transform: translateX(-80px); }
+  .slide.enter-right { transform: translateX(80px); }
+
+  .super-title { font-size: 72px; font-weight: 800; letter-spacing: -3px; line-height: 1.05; text-align: center; max-width: 1000px; }
+  .super-title .gradient { background: var(--gradient-1); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+  .super-title .gradient-green { background: var(--gradient-2); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+  .super-title .gradient-orange { background: var(--gradient-3); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+
+  .section-title { font-size: 52px; font-weight: 700; letter-spacing: -2px; line-height: 1.1; text-align: center; max-width: 900px; }
+  .mid-title { font-size: 40px; font-weight: 700; letter-spacing: -1.5px; line-height: 1.15; text-align: center; max-width: 900px; }
+  .subtitle { font-size: 22px; font-weight: 400; color: var(--dim); margin-top: 20px; text-align: center; max-width: 700px; line-height: 1.5; }
+
+  .label { font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 16px; color: var(--accent); }
+  .label.green { color: var(--accent3); }
+  .label.orange { color: var(--accent4); }
+  .label.purple { color: var(--accent2); }
+  .label.red { color: var(--accent5); }
+
+  .section-num { font-size: 13px; font-weight: 600; color: var(--dim); letter-spacing: 1px; margin-bottom: 12px; }
+
+  .cards { display: grid; gap: 20px; max-width: 1100px; width: 100%; margin-top: 40px; }
+  .cards.three-col { grid-template-columns: repeat(3, 1fr); }
+  .cards.four-col { grid-template-columns: repeat(4, 1fr); }
+  .cards.five-col { grid-template-columns: repeat(5, 1fr); }
+
+  .card { background: var(--card); border: 1px solid var(--card-border); border-radius: 20px; padding: 28px; text-align: left; }
+  .card .card-icon { font-size: 28px; margin-bottom: 12px; display: block; }
+  .card h3 { font-size: 17px; font-weight: 600; margin-bottom: 8px; letter-spacing: -0.3px; }
+  .card p { font-size: 13px; color: var(--dim); line-height: 1.5; }
+  .card .accent { color: var(--accent); font-weight: 600; }
+  .card .green { color: var(--accent3); font-weight: 600; }
+  .card .red { color: var(--accent5); font-weight: 600; }
+  .card .orange { color: var(--accent4); font-weight: 600; }
+
+  .stats-row { display: flex; gap: 60px; margin-top: 48px; justify-content: center; flex-wrap: wrap; }
+  .stat { text-align: center; }
+  .stat .num { font-size: 52px; font-weight: 800; letter-spacing: -2px; }
+  .stat .num.blue { background: var(--gradient-1); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .stat .num.green { background: var(--gradient-2); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .stat .num.orange { background: var(--gradient-3); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .stat .num.purple { background: var(--gradient-4); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .stat .desc { font-size: 14px; color: var(--dim); margin-top: 6px; max-width: 160px; }
+
+  .pipeline { display: flex; align-items: center; gap: 0; max-width: 1100px; width: 100%; margin-top: 44px; flex-wrap: nowrap; justify-content: center; }
+  .phase { display: flex; flex-direction: column; align-items: center; flex: 0 0 auto; }
+  .phase-box { width: 105px; height: 105px; border-radius: 22px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-weight: 600; font-size: 11px; letter-spacing: -0.3px; transition: transform 0.3s; }
+  .phase-box:hover { transform: scale(1.08); }
+  .phase-box .phase-icon { font-size: 24px; margin-bottom: 5px; }
+  .phase-box.c1 { background: linear-gradient(135deg, #2997ff18, #2997ff08); border: 1.5px solid #2997ff44; color: #2997ff; }
+  .phase-box.c2 { background: linear-gradient(135deg, #bf5af218, #bf5af208); border: 1.5px solid #bf5af244; color: #bf5af2; }
+  .phase-box.c3 { background: linear-gradient(135deg, #30d15818, #30d15808); border: 1.5px solid #30d15844; color: #30d158; }
+  .phase-box.c4 { background: linear-gradient(135deg, #ff9f0a18, #ff9f0a08); border: 1.5px solid #ff9f0a44; color: #ff9f0a; }
+  .phase-box.c5 { background: linear-gradient(135deg, #ff375f18, #ff375f08); border: 1.5px solid #ff375f44; color: #ff375f; }
+  .phase-box.c6 { background: linear-gradient(135deg, #5e5ce618, #5e5ce608); border: 1.5px solid #5e5ce644; color: #5e5ce6; }
+  .phase-label { font-size: 10px; color: var(--dim); margin-top: 8px; text-align: center; max-width: 100px; line-height: 1.3; }
+  .arrow { width: 28px; height: 2px; background: var(--card-border); position: relative; flex-shrink: 0; }
+  .arrow::after { content: ''; position: absolute; right: 0; top: -4px; border: 5px solid transparent; border-left: 6px solid var(--card-border); }
+
+  .problem-list { display: flex; flex-direction: column; gap: 14px; max-width: 800px; width: 100%; margin-top: 32px; }
+  .problem-item { display: flex; align-items: flex-start; gap: 16px; padding: 16px 24px; background: var(--card); border: 1px solid var(--card-border); border-radius: 16px; }
+  .problem-item .pi-icon { font-size: 20px; flex-shrink: 0; margin-top: 2px; }
+  .problem-item .pi-text { font-size: 15px; line-height: 1.5; color: var(--dim); }
+  .problem-item .pi-text strong { color: var(--fg); }
+
+  .comparison { display: grid; grid-template-columns: 1fr auto 1fr; gap: 40px; align-items: center; max-width: 700px; margin-top: 40px; }
+  .comp-side { text-align: center; }
+  .comp-side h3 { font-size: 18px; font-weight: 600; margin-bottom: 12px; color: var(--dim); }
+  .comp-side .big-num { font-size: 64px; font-weight: 800; letter-spacing: -3px; line-height: 1; }
+  .comp-side .big-num.dim { color: var(--dim); }
+  .comp-side .big-num.bright { background: var(--gradient-3); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .comp-side .unit { font-size: 16px; color: var(--dim); margin-top: 8px; }
+  .vs { font-size: 28px; font-weight: 700; color: var(--dim); }
+
+  .data-table { max-width: 1000px; width: 100%; margin-top: 32px; border-collapse: collapse; }
+  .data-table th, .data-table td { padding: 12px 20px; text-align: left; font-size: 14px; border-bottom: 1px solid var(--card-border); }
+  .data-table th { color: var(--dim); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; }
+  .data-table td { color: var(--fg); }
+  .data-table .pass { color: var(--accent3); font-weight: 600; }
+  .data-table .fail { color: var(--accent5); font-weight: 600; }
+  .data-table .warn { color: var(--accent4); font-weight: 600; }
+
+  .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; display: flex; justify-content: space-between; align-items: center; padding: 16px 40px; background: rgba(0,0,0,0.85); backdrop-filter: blur(20px); border-top: 1px solid #222; z-index: 100; }
+  .nav-dots { display: flex; gap: 6px; }
+  .nav-dot { width: 8px; height: 8px; border-radius: 50%; background: #444; cursor: pointer; transition: all 0.3s; }
+  .nav-dot.active { background: var(--accent); width: 24px; border-radius: 4px; }
+  .nav-counter { font-size: 13px; color: var(--dim); font-weight: 500; }
+  .nav-arrows { display: flex; gap: 8px; }
+  .nav-arrows button { width: 36px; height: 36px; border-radius: 50%; border: 1px solid #444; background: transparent; color: var(--fg); font-size: 16px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; }
+  .nav-arrows button:hover { border-color: var(--accent); background: rgba(41,151,255,0.1); }
+
+  .tag { display: inline-block; padding: 4px 12px; border-radius: 8px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+  .tag.green { background: rgba(48,209,88,0.12); color: #30d158; }
+  .tag.red { background: rgba(255,55,95,0.12); color: #ff375f; }
+  .tag.orange { background: rgba(255,159,10,0.12); color: #ff9f0a; }
+  .tag.blue { background: rgba(41,151,255,0.12); color: #2997ff; }
+  .tag.purple { background: rgba(191,90,242,0.12); color: #bf5af2; }
+</style>
+</head>
+<body>
+<div class="deck">
+
+  <!-- ============= SLIDE 0: TITLE ============= -->
+  <div class="slide active" data-slide="0">
+    <div class="label">Bachelor's Thesis &middot; RC2 Checkpoint</div>
+    <div class="super-title">
+      <span class="gradient">Crypto Price</span><br>
+      Recommendation System
+    </div>
+    <p class="subtitle">Pre-Registration, Feature Validation & Data Adequacy<br>Dmytro Khvedchuk &middot; 2026</p>
+    <div class="stats-row">
+      <div class="stat"><div class="num blue">4</div><div class="desc">Assets analyzed</div></div>
+      <div class="stat"><div class="num green">23</div><div class="desc">Features tested</div></div>
+      <div class="stat"><div class="num orange">800+</div><div class="desc">Automated tests</div></div>
+      <div class="stat"><div class="num purple">5</div><div class="desc">Bar types compared</div></div>
+    </div>
+  </div>
+
+  <!-- ============= SLIDE 1: PIPELINE ============= -->
+  <div class="slide" data-slide="1">
+    <span class="section-num">ARCHITECTURE</span>
+    <div class="mid-title">Research-Interleaved Pipeline</div>
+    <p class="subtitle">Clean Architecture + DDD &middot; Go/No-Go checkpoints at every stage</p>
+    <div class="pipeline">
+      <div class="phase"><div class="phase-box c1"><span class="phase-icon">&#128230;</span>Ingestion</div><div class="phase-label">Binance API</div></div>
+      <div class="arrow"></div>
+      <div class="phase"><div class="phase-box c2"><span class="phase-icon">&#128202;</span>Bars</div><div class="phase-label">L&oacute;pez de Prado</div></div>
+      <div class="arrow"></div>
+      <div class="phase"><div class="phase-box c3"><span class="phase-icon">&#128269;</span>RC1</div><div class="phase-label">Data quality</div></div>
+      <div class="arrow"></div>
+      <div class="phase"><div class="phase-box c4"><span class="phase-icon">&#9881;</span>Features</div><div class="phase-label">23 indicators</div></div>
+      <div class="arrow"></div>
+      <div class="phase"><div class="phase-box c5"><span class="phase-icon">&#128200;</span>Profiling</div><div class="phase-label">GARCH, PE, BDS</div></div>
+      <div class="arrow"></div>
+      <div class="phase"><div class="phase-box c6"><span class="phase-icon">&#9989;</span><strong>RC2</strong></div><div class="phase-label">We are here</div></div>
+    </div>
+  </div>
+
+  <!-- ============= SLIDE 2: PRE-REGISTRATION ============= -->
+  <div class="slide" data-slide="2">
+    <span class="section-num">SECTION 1</span>
+    <div class="label green">Pre-Registration</div>
+    <div class="section-title">Rules Written<br><span style="background: var(--gradient-2); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Before</span> Seeing Data</div>
+    <div class="problem-list">
+      <div class="problem-item"><span class="pi-icon">&#128203;</span><span class="pi-text"><strong>19 mechanical decision rules</strong> &mdash; feature gates, asset filters, horizon selection, model complexity</span></div>
+      <div class="problem-item"><span class="pi-icon">&#127919;</span><span class="pi-text"><strong>7 Go/No-Go criteria (G1&ndash;G7)</strong> &mdash; evaluated by code, not human judgment</span></div>
+      <div class="problem-item"><span class="pi-icon">&#128221;</span><span class="pi-text"><strong>Trial counting for DSR</strong> &mdash; every post-hoc deviation documented and counted</span></div>
+      <div class="problem-item"><span class="pi-icon">&#128683;</span><span class="pi-text"><strong>Negative result protocol</strong> &mdash; 3 pre-written failure scenarios: if crypto is unpredictable, the recommender becomes a NO-TRADE filter</span></div>
+    </div>
+  </div>
+
+  <!-- ============= SLIDE 3: DATA FOUNDATION ============= -->
+  <div class="slide" data-slide="3">
+    <span class="section-num">RC1 RESULTS</span>
+    <div class="label">Data Foundation</div>
+    <div class="mid-title">6 Years of Crypto Data</div>
+    <table class="data-table">
+      <tr><th>Asset</th><th>Coverage</th><th>Bars (1h)</th><th>Dollar Bars</th><th>Kurtosis Reduction</th></tr>
+      <tr><td>BTCUSDT</td><td class="pass">99.94%</td><td>54,278</td><td>5,287</td><td>53.3 &rarr; 6.7 <span class="tag green">8&times;</span></td></tr>
+      <tr><td>ETHUSDT</td><td class="pass">99.94%</td><td>54,278</td><td>~5,000</td><td>Similar improvement</td></tr>
+      <tr><td>LTCUSDT</td><td class="pass">99.94%</td><td>54,278</td><td>~200</td><td class="warn">Low sample</td></tr>
+      <tr><td>SOLUSDT</td><td class="pass">99.96%</td><td>48,932</td><td>~4,500</td><td>Similar improvement</td></tr>
+    </table>
+    <p class="subtitle" style="font-size: 16px; margin-top: 24px;">Dollar bars: no serial correlation + preserves volatility clustering = <strong style="color: var(--accent3);">ideal bar type</strong></p>
+  </div>
+
+  <!-- ============= SLIDE 4: STATIONARITY ============= -->
+  <div class="slide" data-slide="4">
+    <span class="section-num">SECTION 2</span>
+    <div class="label purple">Stationarity</div>
+    <div class="mid-title">Are Features Safe for Modeling?</div>
+    <div class="stats-row">
+      <div class="stat"><div class="num green">53.7%</div><div class="desc">Stationary</div></div>
+      <div class="stat"><div class="num orange">27.6%</div><div class="desc">Trend-stationary</div></div>
+      <div class="stat"><div class="num" style="background: var(--gradient-3); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">10.2%</div><div class="desc">Unit root</div></div>
+      <div class="stat"><div class="num" style="color: var(--dim);">8.4%</div><div class="desc">Inconclusive</div></div>
+    </div>
+    <p class="subtitle" style="font-size: 16px; margin-top: 28px;"><strong style="color:var(--fg)">10/23 features stationary across ALL 5 bar types.</strong> Non-stationary: <code style="color:var(--accent4)">atr_14</code> (price units), <code style="color:var(--accent4)">rsi_14</code> (constant on some bars), plus volatility features that are trend-stationary.</p>
+  </div>
+
+  <!-- ============= SLIDE 5: VALIDATION RESULTS ============= -->
+  <div class="slide" data-slide="5">
+    <span class="section-num">SECTION 3</span>
+    <div class="label">Three-Gate Validation</div>
+    <div class="section-title">The <span class="gradient-orange">Honest</span> Results</div>
+    <div class="cards three-col">
+      <div class="card">
+        <span class="card-icon">&#128270;</span>
+        <h3>Gate 1: MI (BH)</h3>
+        <p><span class="green">8/23 pass</span> (34.8%)<br>Mutual information significant after Benjamini-Hochberg correction</p>
+      </div>
+      <div class="card">
+        <span class="card-icon">&#127919;</span>
+        <h3>Gate 2: Ridge DA</h3>
+        <p><span class="red">0/23 pass</span><br>No single feature beats random directional accuracy</p>
+      </div>
+      <div class="card">
+        <span class="card-icon">&#128336;</span>
+        <h3>Gate 3: Stability</h3>
+        <p><span class="orange">7/23 pass</span> (30.4%)<br>Significant in &ge;50% of temporal windows</p>
+      </div>
+    </div>
+    <p class="subtitle" style="margin-top: 28px; font-size: 16px;"><strong style="color:var(--fg)">5/23 features kept</strong> (fallback triggered) &mdash; <code style="color:var(--accent)">amihud_24, bbwidth_20, rv_12, rv_24, rv_48</code><br>All volatility-related. No momentum or return feature survived.</p>
+  </div>
+
+  <!-- ============= SLIDE 6: THE GAP ============= -->
+  <div class="slide" data-slide="6">
+    <span class="section-num">KEY INSIGHT</span>
+    <div class="label red">Economic Significance</div>
+    <div class="section-title">The Prediction&ndash;Profitability<br><span class="gradient-orange">Gap</span></div>
+    <div class="comparison">
+      <div class="comp-side">
+        <h3>Best Feature DA</h3>
+        <div class="big-num dim">51.8%</div>
+        <div class="unit">ret_zscore_24 (+1.81 pp)</div>
+      </div>
+      <div class="vs">vs</div>
+      <div class="comp-side">
+        <h3>Break-Even DA</h3>
+        <div class="big-num bright">57.2%</div>
+        <div class="unit">at 20 bps round-trip</div>
+      </div>
+    </div>
+    <p class="subtitle" style="margin-top: 36px; font-size: 18px;"><strong style="color:var(--fg)">5.4 pp gap</strong> &mdash; No single feature is economically sufficient.<br>This is <em>why</em> the ML recommendation system exists.</p>
+  </div>
+
+  <!-- ============= SLIDE 7: WHY NOT A FAILURE ============= -->
+  <div class="slide" data-slide="7">
+    <span class="section-num">THESIS ARGUMENT</span>
+    <div class="label green">Why This Is Not a Failure</div>
+    <div class="mid-title">Three Paths Forward</div>
+    <div class="cards three-col">
+      <div class="card">
+        <span class="card-icon">&#129504;</span>
+        <h3>ML Combination</h3>
+        <p>Individual features carry information (MI significant for <span class="accent">8/23</span>). ML models combine features to bridge the <span class="orange">5.4 pp</span> gap that no single feature can close.</p>
+      </div>
+      <div class="card">
+        <span class="card-icon">&#128683;</span>
+        <h3>Conditional Abstention</h3>
+        <p>The recommender learns <strong>WHEN NOT TO TRADE</strong>. In high-entropy regimes, abstaining preserves capital. Value = <span class="green">risk reduction</span>, not just returns.</p>
+      </div>
+      <div class="card">
+        <span class="card-icon">&#128200;</span>
+        <h3>Volatility Is Predictable</h3>
+        <p>All 5 kept features measure volatility. This is consistent with finance literature &mdash; vol is the <span class="accent">most predictable aspect</span> of returns (Andersen et al., 2003).</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============= SLIDE 8: CROSS-BAR ============= -->
+  <div class="slide" data-slide="8">
+    <span class="section-num">SECTION 3</span>
+    <div class="label purple">Cross-Bar Comparison</div>
+    <div class="mid-title">Does Sampling Method Matter?</div>
+    <table class="data-table">
+      <tr><th>Bar Type</th><th>Rows</th><th>MI Raw Sig.</th><th>Kept</th><th>Verdict</th></tr>
+      <tr><td>Dollar</td><td>5,164</td><td>10/23</td><td>5</td><td class="pass">Primary</td></tr>
+      <tr><td>Volume</td><td>3,141</td><td class="pass">13/23</td><td>5</td><td class="pass">Highest MI rate</td></tr>
+      <tr><td>Vol. Imbalance</td><td>407</td><td>11/23</td><td>5</td><td class="warn">Small sample</td></tr>
+      <tr><td>Dollar Imbalance</td><td>446</td><td class="fail">0/23</td><td>5</td><td class="fail">No signal</td></tr>
+      <tr><td>Time 1h</td><td>~54,000</td><td>TBD</td><td>TBD</td><td>Baseline</td></tr>
+    </table>
+    <p class="subtitle" style="font-size: 15px; margin-top: 20px;"><strong style="color:var(--fg)">Volume bars show highest raw MI significance (13/23)</strong> &mdash; information-driven sampling may extract more structure. Dollar imbalance bars show zero signal (insufficient N).</p>
+  </div>
+
+  <!-- ============= SLIDE 9: STABILITY ============= -->
+  <div class="slide" data-slide="9">
+    <span class="section-num">SECTION 3</span>
+    <div class="label orange">Temporal Stability</div>
+    <div class="mid-title">Signal Is Regime-Dependent</div>
+    <table class="data-table">
+      <tr><th>Window</th><th>Rows</th><th>MI Significant</th><th>Assessment</th></tr>
+      <tr><td>2020&ndash;2021</td><td>188</td><td class="fail">0/23</td><td class="warn">Too few rows</td></tr>
+      <tr><td>2021&ndash;2022</td><td>1,155</td><td class="fail">0/23</td><td>Stable regime (bull run)</td></tr>
+      <tr><td>2022&ndash;2023</td><td>1,196</td><td class="pass">8/23</td><td class="pass">Regime transition (crash &rarr; recovery)</td></tr>
+      <tr><td>2023&ndash;2024</td><td>912</td><td class="fail">0/23</td><td>Range-bound</td></tr>
+    </table>
+    <p class="subtitle" style="font-size: 15px; margin-top: 20px;"><strong style="color:var(--fg)">Features are informative during regime transitions, not steady states.</strong> This supports the conditional prediction argument &mdash; the recommender should deploy strategies only during market structure changes.</p>
+  </div>
+
+  <!-- ============= SLIDE 10: CORRELATION & VIF ============= -->
+  <div class="slide" data-slide="10">
+    <span class="section-num">SECTION 3</span>
+    <div class="label">Multicollinearity</div>
+    <div class="mid-title">12/23 Features with VIF &gt; 10</div>
+    <div class="cards three-col">
+      <div class="card">
+        <span class="card-icon">&#128257;</span>
+        <h3>Perfect Correlations</h3>
+        <p><code>logret_1 &harr; roc_1</code>: r = 1.000<br><code>gk_vol &harr; park_vol</code>: r = 0.997<br>Mathematically equivalent pairs</p>
+      </div>
+      <div class="card">
+        <span class="card-icon">&#128200;</span>
+        <h3>Volatility Cluster</h3>
+        <p><code>amihud, rv_12, rv_24, rv_48, bbwidth</code><br>All 5 kept features are correlated (r &gt; 0.9) because they measure the <span class="accent">same phenomenon</span></p>
+      </div>
+      <div class="card">
+        <span class="card-icon">&#9989;</span>
+        <h3>Not a Problem</h3>
+        <p>VIF is <strong>diagnostic, not a filter</strong>. Ridge regression handles collinearity. Pre-registered rule: <span class="green">flag, don't drop</span></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============= SLIDE 11: R5 CONFRONTATION ============= -->
+  <div class="slide" data-slide="11">
+    <span class="section-num">SECTION 4</span>
+    <div class="label red">Confronting R5</div>
+    <div class="section-title">Is Crypto <span class="gradient-orange">Unpredictable</span>?</div>
+    <div class="problem-list">
+      <div class="problem-item"><span class="pi-icon">&#128220;</span><span class="pi-text"><strong>R5 (Sigaki et al., 2025):</strong> BTC/ETH permutation entropy H<sub>norm</sub> &asymp; 0.985&ndash;0.987 at d=5 on hourly data. Near-Brownian noise.</span></div>
+      <div class="problem-item"><span class="pi-icon">&#128161;</span><span class="pi-text"><strong>Our counter:</strong> R5 uses time bars (unconditional). Dollar bars use information-driven sampling &mdash; if H<sub>norm</sub> is lower, structure exists that time bars miss.</span></div>
+      <div class="problem-item"><span class="pi-icon">&#127919;</span><span class="pi-text"><strong>Conditional vs unconditional:</strong> Even H<sub>norm</sub> = 0.97 means 3% ordinal complexity is present. Combined with N<sub>eff</sub> &asymp; 3,000, a 2&ndash;3 pp DA edge IS detectable.</span></div>
+      <div class="problem-item"><span class="pi-icon">&#128683;</span><span class="pi-text"><strong>Honest resolution:</strong> If crypto IS near-Brownian, the recommender's value is knowing when <strong>NOT</strong> to trade. This is still a valid thesis contribution.</span></div>
+    </div>
+  </div>
+
+  <!-- ============= SLIDE 12: GO/NO-GO ============= -->
+  <div class="slide" data-slide="12">
+    <span class="section-num">SECTION 8</span>
+    <div class="label green">Go / No-Go Decision</div>
+    <div class="mid-title">Mechanical Verdict</div>
+    <table class="data-table">
+      <tr><th>Criterion</th><th>Threshold</th><th>Result</th><th>Decision</th></tr>
+      <tr><td>G1: Features &ge; 5</td><td>&ge; 5</td><td>5 kept</td><td class="pass">GO</td></tr>
+      <tr><td>G2: DA excess exists</td><td>&ge; break-even for &ge; 1 bar</td><td>1.81 pp &lt; 7.23 pp</td><td class="warn">MARGINAL</td></tr>
+      <tr><td>G3: H<sub>norm</sub> &lt; 0.98</td><td>&lt; 0.98 for &ge; 1 bar</td><td>Pending S4</td><td class="warn">TBD</td></tr>
+      <tr><td>G4: N<sub>eff</sub> &ge; 1,000</td><td>&ge; 1,000 primary</td><td>&asymp; 3,000+</td><td class="pass">GO</td></tr>
+      <tr><td>G5: Cross-asset &tau;</td><td>&tau; &gt; 0</td><td>Pending</td><td class="warn">TBD</td></tr>
+      <tr><td>G6: BDS rejects i.i.d.</td><td>Rejects</td><td>Pending S5</td><td class="warn">TBD</td></tr>
+      <tr><td>G7: Feasibility</td><td>MDE &lt; break-even</td><td>Yes</td><td class="pass">GO</td></tr>
+    </table>
+    <p class="subtitle" style="font-size: 16px; margin-top: 24px;"><strong style="color: var(--accent3);">Overall: GO with honest caveats.</strong> Features carry information, but individual economic significance is marginal. ML combination is the path forward.</p>
+  </div>
+
+  <!-- ============= SLIDE 13: NEXT STEPS ============= -->
+  <div class="slide" data-slide="13">
+    <span class="section-num">WHAT'S NEXT</span>
+    <div class="label">Phases 7&ndash;14</div>
+    <div class="mid-title">From Here to Evaluation</div>
+    <div class="cards four-col">
+      <div class="card">
+        <span class="card-icon">&#128176;</span>
+        <h3>Ph. 7: Backtest</h3>
+        <p>Event-driven engine, fill-on-next-open, Lo Sharpe correction</p>
+      </div>
+      <div class="card">
+        <span class="card-icon">&#128200;</span>
+        <h3>Ph. 8: Strategies</h3>
+        <p>Momentum, Donchian, mean-reversion on dollar bars</p>
+      </div>
+      <div class="card">
+        <span class="card-icon">&#129504;</span>
+        <h3>Ph. 9&ndash;10: Models</h3>
+        <p>Classification (SIDE) + Regression (SIZE) with CPCV</p>
+      </div>
+      <div class="card">
+        <span class="card-icon">&#127919;</span>
+        <h3>Ph. 12: Recommender</h3>
+        <p>Generalized meta-labeling &mdash; predict strategy return</p>
+      </div>
+    </div>
+    <p class="subtitle" style="margin-top: 28px;">Phase 14: Deflated Sharpe Ratio, PBO, Monte Carlo &mdash; the final statistical proof</p>
+  </div>
+
+  <!-- ============= SLIDE 14: THANK YOU ============= -->
+  <div class="slide" data-slide="14">
+    <div class="super-title">
+      <span class="gradient-green">Honest</span> Results.<br>
+      Rigorous Methods.
+    </div>
+    <p class="subtitle" style="margin-top: 24px; font-size: 20px;">Pre-registered &middot; BH-corrected &middot; Economically grounded<br>800+ automated tests &middot; 104-cell research notebook</p>
+    <div class="stats-row" style="margin-top: 40px;">
+      <div class="stat"><div class="num blue">5</div><div class="desc">Features surviving three-gate validation</div></div>
+      <div class="stat"><div class="num orange">5.4pp</div><div class="desc">Gap ML must bridge</div></div>
+      <div class="stat"><div class="num green">57.2%</div><div class="desc">Break-even DA (the real bar)</div></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Navigation -->
+<div class="bottom-nav">
+  <div class="nav-dots" id="nav-dots"></div>
+  <div class="nav-counter"><span id="current">1</span> / <span id="total"></span></div>
+  <div class="nav-arrows">
+    <button onclick="go(-1)">&#8592;</button>
+    <button onclick="go(1)">&#8594;</button>
+  </div>
+</div>
+
+<script>
+  const slides = document.querySelectorAll('.slide');
+  const total = slides.length;
+  let current = 0;
+  let animating = false;
+
+  const dotsContainer = document.getElementById('nav-dots');
+  for (let i = 0; i < total; i++) {
+    const dot = document.createElement('div');
+    dot.className = 'nav-dot' + (i === 0 ? ' active' : '');
+    dot.addEventListener('click', () => goTo(i));
+    dotsContainer.appendChild(dot);
+  }
+
+  function goTo(n) {
+    if (n < 0 || n >= total || n === current || animating) return;
+    animating = true;
+    const direction = n > current ? 1 : -1;
+    const oldSlide = slides[current];
+    const newSlide = slides[n];
+
+    newSlide.style.transition = 'none';
+    newSlide.classList.add(direction === 1 ? 'enter-right' : 'enter-left');
+    newSlide.classList.remove('enter-left', 'enter-right', 'exit-left', 'exit-right');
+    if (direction === 1) { newSlide.classList.add('enter-right'); } else { newSlide.classList.add('enter-left'); }
+    newSlide.offsetHeight;
+    newSlide.style.transition = '';
+
+    requestAnimationFrame(() => {
+      oldSlide.classList.remove('active');
+      oldSlide.classList.add(direction === 1 ? 'exit-left' : 'exit-right');
+      newSlide.classList.remove('enter-left', 'enter-right');
+      newSlide.classList.add('active');
+      current = n;
+      document.querySelectorAll('.nav-dot').forEach((d, i) => d.classList.toggle('active', i === current));
+      document.getElementById('current').textContent = current + 1;
+      setTimeout(() => {
+        slides.forEach((s, i) => { if (i !== current) s.classList.remove('active', 'exit-left', 'exit-right', 'enter-left', 'enter-right'); });
+        animating = false;
+      }, 550);
+    });
+  }
+
+  function go(dir) { goTo(current + dir); }
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); go(1); }
+    if (e.key === 'ArrowLeft') { e.preventDefault(); go(-1); }
+    if (e.key === 'Home') { e.preventDefault(); goTo(0); }
+    if (e.key === 'End') { e.preventDefault(); goTo(total - 1); }
+  });
+
+  let touchStartX = 0;
+  document.addEventListener('touchstart', e => { touchStartX = e.touches[0].clientX; }, {passive: true});
+  document.addEventListener('touchend', e => { const diff = touchStartX - e.changedTouches[0].clientX; if (Math.abs(diff) > 50) go(diff > 0 ? 1 : -1); });
+
+  document.getElementById('total').textContent = total;
+</script>
+</body>
+</html>
