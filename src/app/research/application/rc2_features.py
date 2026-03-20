@@ -29,6 +29,9 @@ _VIF_INF_THRESHOLD: Final[float] = 1e10
 _EPS: Final[float] = 1e-12
 """Epsilon for division-by-zero protection."""
 
+_NEAR_ZERO_STD: Final[float] = 1e-15
+"""Standard deviation below this is treated as constant (zero variance)."""
+
 
 class RC2FeatureAnalyzer:
     """Feature exploration analysis for RC2 Section 3.
@@ -71,8 +74,15 @@ class RC2FeatureAnalyzer:
         # Extract feature matrix and add constant for intercept
         x_raw: np.ndarray = feature_df[feature_names].to_numpy(dtype=np.float64)
 
-        # Replace any remaining NaN/inf with 0 to prevent VIF failure
-        x_clean: np.ndarray = np.nan_to_num(x_raw, nan=0.0, posinf=0.0, neginf=0.0)
+        # Drop rows with NaN/inf — replacing with 0 corrupts the correlation structure
+        nan_mask: np.ndarray = np.isnan(x_raw).any(axis=1) | np.isinf(x_raw).any(axis=1)
+        n_dropped: int = int(nan_mask.sum())
+        if n_dropped > 0:
+            logger.warning("Dropped {}/{} rows with NaN/inf for VIF computation", n_dropped, len(x_raw))
+        x_clean: np.ndarray = x_raw[~nan_mask]
+        if len(x_clean) < len(feature_names) + 2:
+            logger.warning("Too few complete rows ({}) for VIF; returning inf for all", len(x_clean))
+            return pd.DataFrame({"feature": feature_names, "vif": [float("inf")] * len(feature_names)})
 
         x_const: np.ndarray = add_constant(x_clean)
 
@@ -83,7 +93,7 @@ class RC2FeatureAnalyzer:
         vif_values: list[float] = []
         for i in range(len(feature_names)):
             # Zero-variance (constant) columns get inf VIF -- perfectly collinear with intercept
-            if np.std(x_clean[:, i]) == 0.0:
+            if np.std(x_clean[:, i]) < _NEAR_ZERO_STD:
                 vif_values.append(float("inf"))
                 continue
             try:
@@ -93,7 +103,7 @@ class RC2FeatureAnalyzer:
                 # Cap extreme values
                 if np.isnan(vif_val) or np.isinf(vif_val) or vif_val > _VIF_INF_THRESHOLD:
                     vif_val = float("inf")
-            except np.linalg.LinAlgError, ValueError, IndexError:
+            except (np.linalg.LinAlgError, ValueError, IndexError):  # fmt: skip
                 logger.warning("VIF computation failed for feature '{}', assigning inf", feature_names[i])
                 vif_val = float("inf")
             vif_values.append(vif_val)

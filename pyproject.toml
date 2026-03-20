@@ -158,7 +158,11 @@ convention = "google"
     "D",       # notebooks don't need docstrings
     "DOC",     # notebooks don't need docstrings
     "F401",    # unused imports in notebooks are common (display, show, etc.)
+    "F811",    # re-imports across cells are intentional (cell independence)
+    "F821",    # cross-cell variable references are inherent to notebook execution
+    "PD002",   # .applymap() used for styled DataFrame rendering
     "PLR2004", # magic values in notebook analysis cells are expected
+    "S101",    # assert used for notebook-internal validation guards
 ]
 
 [tool.ruff.lint.isort]
