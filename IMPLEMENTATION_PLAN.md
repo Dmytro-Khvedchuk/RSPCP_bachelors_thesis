@@ -8,6 +8,92 @@
 
 ---
 
+## Quick Reference (Updated 2026-03-25)
+
+| Item | Value |
+|------|-------|
+| **Current phase** | Phase 7 — Profiling Closure (cost sensitivity, LTCUSDT vol-bar profiling, atr_14/rsi_14 investigation) |
+| **Next action** | Phase 7 → Phase 8 (Backtest Engine) |
+| **Blocking dependencies** | Phase 7 closure items must complete before Phase 8 |
+| **Critical path** | 7 → 8 → 9 → 10-pre → 10 → 11 → 12 → 13 → 14 → 15 |
+| **Asset universe** | 3 assets for dollar bars (BTC, ETH, SOL); 4 including LTC for volume bars |
+| **Trial count (DSR)** | Tier 1: 60 pre-registered; Tier 2: exhaustive (60 + all hyperparameter/model choices) |
+| **Feature sets** | (a) fallback-5: rv_12, rv_24, rv_48, bbwidth_20_2.0, amihud_24; (b) robust-5: amihud_24, bbwidth_20_2.0, park_vol_24, rv_24, rv_48; (c) full-23: all features with regularization |
+| **Key constraint** | Best single-feature DA = 51.81% vs break-even DA = 57.23% (gap = -5.42 pp) |
+
+### Canonical Sample Size Table (Single Source of Truth)
+
+> All downstream phases MUST reference this table for sample sizes, tiers, and DL eligibility.
+> Any discrepancy with this table is a bug.
+
+| Asset | Bar Type | N_raw | N_eff | Tier | DL Eligible (N_eff >= 2,000) |
+|-------|----------|-------|-------|------|------------------------------|
+| BTCUSDT | dollar | 5,286 | 5,286 | A | Yes |
+| BTCUSDT | volume | 3,263 | 3,263 | A | Yes |
+| BTCUSDT | vol_imbalance | 529 | 451 | C | No |
+| BTCUSDT | dollar_imbalance | 568 | 568 | B | No |
+| BTCUSDT | time_1h | 54,277 | 54,277 | A | Yes |
+| ETHUSDT | dollar | 2,758 | 2,454 | A | Yes |
+| ETHUSDT | volume | 24,037 | 24,037 | A | Yes |
+| ETHUSDT | vol_imbalance | 697 | 697 | B | No |
+| ETHUSDT | time_1h | 54,277 | 54,277 | A | Yes |
+| SOLUSDT | dollar | 808 | 808 | B | No |
+| SOLUSDT | volume | 47,177 | 47,177 | A | Yes |
+| SOLUSDT | vol_imbalance | 870 | 870 | B | No |
+| SOLUSDT | time_1h | 48,931 | 48,931 | A | Yes |
+| LTCUSDT | dollar | 199 | — | **EXCLUDED** | No |
+| LTCUSDT | volume | 26,986 | 26,986 | A | Yes |
+| LTCUSDT | vol_imbalance | 737 | 737 | B | No |
+| LTCUSDT | dollar_imbalance | 14 | — | **EXCLUDED** | No |
+| LTCUSDT | time_1h | 54,277 | 54,277 | A | Yes |
+| SOLUSDT | dollar_imbalance | 153 | — | **EXCLUDED** | No |
+
+### Feature Set Hierarchy (Canonical Definitions)
+
+> Referenced by name in Phases 10–13. "Primary" is per-horizon, "robust" is cross-horizon,
+> "full" is all features for regularized models.
+
+| Name | Definition | Features | When to Use |
+|------|-----------|----------|-------------|
+| **fallback-5** | Top 5 by composite score for fwd_logret_1 (primary horizon) | rv_12, rv_24, rv_48, bbwidth_20_2.0, amihud_24 | Minimum viable feature set; fallback if regularized models fail |
+| **robust-5** | Intersection of top-5 across >= 2/3 horizons (Rule F4) | amihud_24, bbwidth_20_2.0, park_vol_24, rv_24, rv_48 | Cross-horizon models, stability-critical analyses |
+| **full-23** | All 23 engineered features | All features from Phase 4A | Regularized models (Ridge, LightGBM) where shrinkage handles noise |
+
+### Pre-Registered Expected Results (Positive and Negative)
+
+> Pre-registering both expected positive AND negative results converts potential failures
+> into confirmatory findings (Chambers & Tzavella, 2022).
+
+**Expected positive results:**
+- Volatility forecasting R² > 0 (vol features dominate, GARCH persistence = 1.000)
+- LightGBM outperforms GRU on tabular data at N < 10,000 (Grinsztajn et al., 2022)
+- Regime-conditional recommender outperforms unconditional deployment
+- BDS rejects i.i.d. on GARCH residuals (already confirmed in RC2)
+- Cross-asset feature consistency (Kendall tau > 0, already confirmed: 0.571)
+
+**Expected negative results:**
+- No single feature exceeds break-even DA on dollar bars (already confirmed in RC2: gap = -5.42 pp)
+- GRU classifier underperforms LightGBM (intentional negative-result experiment)
+- LTCUSDT dollar bars unusable (already confirmed: 199 bars)
+- Time bars have worst properties for modeling (already confirmed in RC1)
+- Multi-feature ensemble DA may still fall below break-even (HIGH probability per RC2)
+- DA not significantly above majority class (51.14%) after BH correction (MEDIUM probability)
+- Recommendation system alpha may disappear at realistic transaction costs (MEDIUM probability)
+
+### DSR Trial Count Framework (Audit Finding A1)
+
+> Two tiers of trial counting for the Deflated Sharpe Ratio, resolving the 60 vs 200-500+
+> inconsistency. Phase 15E computes DSR at BOTH counts and reports both.
+
+| Tier | Count | What It Includes | DSR Interpretation |
+|------|-------|------------------|-------------------|
+| **Tier 1: Pre-registered** | 60 | 4 assets × 5 bar_types × 3 horizons (combinatorial exploration space defined before data examination, 0 deviations) | Sensitivity analysis — shows significance at the pre-registered exploration count |
+| **Tier 2: Exhaustive** | 60 + all post-hoc | Tier 1 + each hyperparameter configuration tried + each model variant + each RC decision point that could have gone differently | **Primary result** — the honest, conservative DSR. Use this as the headline number. |
+
+The honest approach: **Tier 2 (exhaustive) is the primary result.** Tier 1 (pre-registered) is a sensitivity analysis showing how significance changes under the best-case trial count. Both are reported; the examiner can choose which to trust.
+
+---
+
 ## Research Foundation & Novel Combinations
 
 ### Key References
@@ -16,13 +102,13 @@
 |---|---------------|----------|---------------|
 | R1 | López de Prado, *Advances in Financial Machine Learning* (2018) | Information-driven bars (tick, volume, dollar, imbalance, run), triple barrier labeling, meta-labeling, CUSUM filter | Bar construction (Phase 2). But we diverge: **regression targets instead of triple-barrier classification**. |
 | R2 | [Algorithmic crypto trading using information-driven bars, triple barrier labeling and deep learning](https://link.springer.com/article/10.1186/s40854-025-00866-w) (Financial Innovation, 2025) | Combines dollar/volume bars + triple barrier + deep learning for BTC/ETH. First rigorous application of López de Prado's full pipeline to crypto. | Validates our bar choice. We extend beyond classification to **return magnitude regression**. |
-| R3 | [Adaptive TFT for Cryptocurrency Price Prediction](https://arxiv.org/abs/2509.10542) (2025) | Dynamic subseries segmentation + pattern-conditioned TFT models. Outperforms fixed-length TFT and LSTM. | Inspiration for our transformer regressor (Phase 9C). We adapt the pattern categorization for **regime-conditional forecasting**. |
-| R4 | [CryptoPulse: Dual-Prediction with Cross-Correlated Indicators](https://arxiv.org/html/2502.19349v3) (2025) | Dual-prediction (macro environment + individual dynamics) fused with sentiment. Cross-crypto attention. MAE improvement 10-64%. | We adopt the **cross-asset correlation features** idea for the recommendation system (Phase 11A) — but without sentiment, using strategy performance instead. |
+| R3 | [Adaptive TFT for Cryptocurrency Price Prediction](https://arxiv.org/abs/2509.10542) (2025) | Dynamic subseries segmentation + pattern-conditioned TFT models. Outperforms fixed-length TFT and LSTM. | Inspiration for our transformer regressor (Phase 11C). We adapt the pattern categorization for **regime-conditional forecasting**. |
+| R4 | [CryptoPulse: Dual-Prediction with Cross-Correlated Indicators](https://arxiv.org/html/2502.19349v3) (2025) | Dual-prediction (macro environment + individual dynamics) fused with sentiment. Cross-crypto attention. MAE improvement 10-64%. | We adopt the **cross-asset correlation features** idea for the recommendation system (Phase 13A) — but without sentiment, using strategy performance instead. |
 | R5 | [Quantifying Cryptocurrency Unpredictability](https://arxiv.org/html/2502.09079v1) (2025) | Permutation entropy + complexity-entropy plane show crypto returns are near Brownian noise. Naive models outperform complex ML. | Critical sanity check. We use **permutation entropy as a feature** for the recommender: high entropy → don't deploy strategy. Also motivates honest evaluation in RC3. |
-| R6 | [LSTM-Conformal Forecasting for Bitcoin](https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0319008) (2025) | LSTM + conformal prediction with Adaptive Coverage Interval (ACI) for BTC forecasting. | Direct precedent for our calibration approach (Phase 9D). We extend to **multi-asset conformal intervals**. |
+| R6 | [LSTM-Conformal Forecasting for Bitcoin](https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0319008) (2025) | LSTM + conformal prediction with Adaptive Coverage Interval (ACI) for BTC forecasting. | Direct precedent for our calibration approach (Phase 11D). We extend to **multi-asset conformal intervals**. |
 | R7 | [Adaptive Conformal Inference for 4000+ Crypto-Assets](https://www.mdpi.com/1911-8074/17/6/248) (2024) | ACI for VaR estimation across massive crypto universe. ACI handles non-stationarity. | Validates conformal prediction at scale for crypto. We use ACI for **return forecast intervals**, not just VaR. |
 | R8 | [Conformal Prediction for Time-series with Change Points](https://arxiv.org/abs/2509.02844) (2025) | CPTC algorithm integrates change-point detection with online conformal prediction for non-stationary series. | Regime changes in crypto → we integrate **change-point awareness** into conformal intervals. |
-| R9 | [Learning-to-Rank for Momentum Portfolio Selection](https://link.springer.com/article/10.1007/s10489-024-05377-2) (2024) | Knowledge graph embeddings + LTR for stock ranking. Cross-domain knowledge transfer. | We adapt the **learning-to-rank framing** for strategy deployment recommendation (Phase 11). Instead of "which stocks to buy", it's "which assets to deploy strategy on". |
+| R9 | [Learning-to-Rank for Momentum Portfolio Selection](https://link.springer.com/article/10.1007/s10489-024-05377-2) (2024) | Knowledge graph embeddings + LTR for stock ranking. Cross-domain knowledge transfer. | We adapt the **learning-to-rank framing** for strategy deployment recommendation (Phase 13). Instead of "which stocks to buy", it's "which assets to deploy strategy on". |
 | R10 | [Optimizing Portfolio via Stock Ranking and Matching with RL](https://www.sciencedirect.com/science/article/abs/pii/S0957417425000521) (2025) | RL agent learns to rank stocks, then matches positions. Combines LSTM + XGBoost + Deep RankNet. | Alternative recommender architecture: **RankNet loss** for training the recommender to rank assets by predicted strategy performance. |
 | R11 | [Meta-Labeling](https://en.wikipedia.org/wiki/Meta-Labeling) (López de Prado, 2017) | Secondary ML model that learns when and how much to bet on a primary model's signal. Binary classification for bet/no-bet. | We **generalize meta-labeling from classification to regression**: instead of bet/no-bet, predict the expected strategy return. The recommender IS a regression meta-label model. |
 
@@ -114,7 +200,7 @@ pairs of m-dimensional embedded points fall within distance ε. Under i.i.d., C(
 C(ε, 1)^m. The test statistic measures the deviation from this relationship.
 
 *Used in:* Phase 5 (profiling — applied to GARCH residuals to justify deep learning),
-Phase 11 (RC3 — applied to model residuals to check if remaining structure exists).
+Phase 13 (RC3 — applied to model residuals to check if remaining structure exists).
 
 *Python:* `statsmodels.stats.diagnostic.acorr_bds`
 
@@ -140,7 +226,7 @@ differences. This is crucial for financial data where errors are serially correl
 *Key subtlety:* For nested models (e.g., model with 5 features vs model with same 5 + 2 more),
 standard DM is oversized. Use Clark-West adjustment in that case.
 
-*Used in:* Phase 11 (RC3 — all pairwise comparisons), Phase 13 (RC4 — recommender vs baselines).
+*Used in:* Phase 13 (RC3 — all pairwise comparisons), Phase 14 (RC4 — recommender vs baselines).
 
 *Python:* custom implementation or `arch.bootstrap.SPA` (includes DM internally)
 
@@ -164,7 +250,7 @@ handles multiple comparisons — no Bonferroni needed.
 *Why better than pairwise DM:* If you have 10 models and do 45 pairwise DM tests, you
 inflate Type I error. MCS controls the familywise error rate and gives you one clean answer.
 
-*Used in:* Phase 11 (RC3 — which classifiers/regressors to keep), Phase 13 (RC4 — which
+*Used in:* Phase 13 (RC3 — which classifiers/regressors to keep), Phase 14 (RC4 — which
 recommender configurations to keep).
 
 *Python:* `arch.bootstrap.MCS`
@@ -184,7 +270,7 @@ Improvement over White's Reality Check: uses studentized test statistics that re
 the influence of poor/irrelevant models in the set. More powerful when some alternatives
 are clearly bad (which is common — not all models work well).
 
-*Used in:* Phase 13 (RC4). Benchmark = AllAssetsRecommender (unfiltered). Alternative set =
+*Used in:* Phase 14 (RC4). Benchmark = AllAssetsRecommender (unfiltered). Alternative set =
 {ML recommender, classifier-only, regressor-only, volume filter, momentum filter}.
 Answer: "Does ANY of our approaches beat unfiltered deployment?"
 
@@ -211,8 +297,8 @@ Example result you could show: "On average (DM test), recommender is only margin
 better than unfiltered (p=0.12). But conditional on high-volatility regimes (GW test),
 the recommender significantly outperforms (p=0.003)." This would be a strong thesis finding.
 
-*Used in:* Phase 11 (RC3 — are models conditionally better in certain regimes?),
-Phase 13 (RC4 — is the recommender conditionally better given market state?).
+*Used in:* Phase 13 (RC3 — are models conditionally better in certain regimes?),
+Phase 14 (RC4 — is the recommender conditionally better given market state?).
 Condition on: volatility regime (GARCH σ), Hurst exponent, VR(q), permutation entropy.
 
 ---
@@ -238,12 +324,15 @@ Inputs:
 If DSR p-value > 0.05 → your best Sharpe is NOT significant after correction
 ```
 
-*Why essential:* You test ~5 classifiers × ~6 regressors × ~3 horizons × ~20 assets =
-potentially 1800 configurations. Without DSR, finding one with Sharpe > 2 by pure luck
-is almost guaranteed. DSR tells you: "given that you tried 1800 things, is Sharpe 2.1
-still impressive?" (Often: no.)
+*Why essential:* Without DSR, finding one configuration with Sharpe > 2 by pure luck is almost
+guaranteed when trying many configurations. DSR tells you: "given that you tried N things,
+is Sharpe 2.1 still impressive?" (Often: no.)
 
-*Used in:* Phase 14. Applied to the best recommender configuration.
+*Trial count framework (Audit A1):* Two-tier approach. Tier 1: 60 pre-registered trials
+(sensitivity analysis). Tier 2: exhaustive count including all hyperparameter/model choices
+(primary result). See Quick Reference for full definition.
+
+*Used in:* Phase 15E. Applied to the best recommender configuration at BOTH trial counts.
 
 **C2. Probability of Backtest Overfitting (PBO)**
 ([Bailey & López de Prado 2015](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2326253))
@@ -267,7 +356,7 @@ PBO = 0.00 → IS-best always performs well OOS → very strong (rare in finance
 *Intuition:* If you pick the best strategy on training data and it consistently
 performs below average on test data, you were just picking lucky noise patterns.
 
-*Used in:* Phase 14. Applied to: classifier selection, regressor selection,
+*Used in:* Phase 15. Applied to: classifier selection, regressor selection,
 recommender hyperparameter tuning, bar type selection.
 
 **C3. Combinatorial Purged Cross-Validation (CPCV)**
@@ -298,7 +387,7 @@ Combo 2: [TRAIN][purge|TEST|purge][TRAIN][TRAIN][purge|TEST|purge][TRAIN]
 ... etc, C(6,2) = 15 combinations total
 ```
 
-*Used in:* Phases 9, 10, 12 — all model training and evaluation.
+*Used in:* Phases 10, 11, 12 — all model training and evaluation.
 
 ---
 
@@ -327,7 +416,7 @@ Common failures:
 at once. A model can pass reliability checks at 50%, 90%, 95% but still fail PIT
 (e.g., wrong shape between quantiles).
 
-*Used in:* Phase 11 (RC3 — for all probabilistic regressors: quantile regression,
+*Used in:* Phase 13 (RC3 — for all probabilistic regressors: quantile regression,
 GRU-MDN, conformal intervals).
 
 **D2. Kupiec Unconditional Coverage Test**
@@ -347,7 +436,7 @@ LR ~ χ²(1)
 Expected: 100 violations (5%). Observed: 127 (6.35%). Is this significantly different?
 Kupiec answers: p = 0.03 → yes, the interval undercovers.
 
-*Used in:* Phase 11 (RC3 — test all conformal intervals).
+*Used in:* Phase 13 (RC3 — test all conformal intervals).
 
 **D3. Christoffersen Independence Test**
 ([Christoffersen 1998](https://www.sciencedirect.com/science/article/pii/S0304407698000165))
@@ -375,7 +464,7 @@ the model is useless exactly when you need it most. Christoffersen catches this.
 *Combined test (Christoffersen 1998):* Joint test of unconditional coverage (Kupiec) +
 independence → tests both rate AND clustering simultaneously. LR_cc = LR_uc + LR_ind.
 
-*Used in:* Phase 11 (RC3 — especially important for GRU-MDN and conformal intervals).
+*Used in:* Phase 13 (RC3 — especially important for GRU-MDN and conformal intervals).
 
 ---
 
@@ -399,7 +488,7 @@ For 1h bars with higher autocorrelation:
   correction factor ≈ 1.4-1.8 → many "significant" Sharpes become insignificant
 ```
 
-*Used in:* Phase 7 (backtest metrics — always report corrected SE), Phase 14 (all Sharpe tests).
+*Used in:* Phase 8 (backtest metrics — always report corrected SE), Phase 15 (all Sharpe tests).
 
 **E2. Minimum Backtest Length (MBL)**
 
@@ -416,7 +505,7 @@ Example: SR = 1.5, γ₃ = -0.3, γ₄ = 8, α = 0.05
   → If your test set is 6 months → INCONCLUSIVE regardless of observed Sharpe
 ```
 
-*Used in:* Phase 14. Quick check — if MBL > available test period, the results are
+*Used in:* Phase 15. Quick check — if MBL > available test period, the results are
 honest but inconclusive. Document this.
 
 ---
@@ -445,23 +534,25 @@ feature in the recommender.
 
 #### Summary: Where Each Test Is Used
 
-| Test | Category | Used In | Answers |
-|------|----------|---------|---------|
-| Variance Ratio (Lo-MacKinlay) | A1 | RC1, Phase 4 (feature) | Is this asset predictable? |
-| BDS Test | A2 | Phase 5, RC3 | Is there nonlinear structure in residuals? |
-| Diebold-Mariano | B1 | RC3, RC4 | Is model A better than model B? |
-| Model Confidence Set | B2 | RC3, RC4 | Which models are the "best" set? |
-| Hansen SPA | B3 | RC4, Phase 14 | Does best model beat benchmark after correction? |
-| Giacomini-White (conditional) | B4 | RC3, RC4 | Is model A better in specific regimes? |
-| Deflated Sharpe Ratio | C1 | Phase 14 | Is best Sharpe significant after N trials? |
-| PBO (Prob. of Backtest Overfit) | C2 | Phase 14 | Is model selection process overfit? |
-| CPCV (purge + embargo) | C3 | Phase 9, 10, 12 | Is cross-validation honest for time series? |
-| PIT Calibration | D1 | RC3 | Is the full predictive distribution calibrated? |
-| Kupiec Coverage | D2 | RC3 | Do intervals fail at the right rate? |
-| Christoffersen Independence | D3 | RC3 | Do interval failures cluster? |
-| Lo (2002) Sharpe Correction | E1 | Phase 7, 14 | Is Sharpe significant given autocorrelation? |
-| Minimum Backtest Length | E2 | Phase 14 | Do we have enough data for a conclusion? |
-| Granger Causality | F1 | RC2 | Does feature X predict target Y? |
+| Test | Category | Used In | Answers | RC2 Result |
+|------|----------|---------|---------|------------|
+| Variance Ratio (Lo-MacKinlay) | A1 | RC1, RC2, Phase 4 | Is this asset predictable? | 1/57 significant after BH. LTCUSDT only. |
+| BDS Test | A2 | RC2, RC3 | Is there nonlinear structure in residuals? | **Rejects i.i.d. for all 4 assets** (on GARCH residuals) |
+| Diebold-Mariano | B1 | RC3, RC4 | Is model A better than model B? | — |
+| Model Confidence Set | B2 | RC3, RC4 | Which models are the "best" set? | — |
+| Hansen SPA | B3 | RC4, Phase 15 | Does best model beat benchmark after correction? | — |
+| Giacomini-White (conditional) | B4 | RC3, RC4 | Is model A better in specific regimes? | — |
+| Deflated Sharpe Ratio | C1 | Phase 15 | Is best Sharpe significant after N trials? | 60 pre-registered trials, 0 deviations |
+| PBO (Prob. of Backtest Overfit) | C2 | Phase 15 | Is model selection process overfit? | — |
+| CPCV (purge + embargo) | C3 | Phase 10, 11, 12 | Is cross-validation honest for time series? | — |
+| PIT Calibration | D1 | RC3 | Is the full predictive distribution calibrated? | — |
+| Kupiec Coverage | D2 | RC3 | Do intervals fail at the right rate? | — |
+| Christoffersen Independence | D3 | RC3 | Do interval failures cluster? | — |
+| Lo (2002) Sharpe Correction | E1 | Phase 8, 15 | Is Sharpe significant given autocorrelation? | — |
+| Minimum Backtest Length | E2 | Phase 15 | Do we have enough data for a conclusion? | — |
+| Granger Causality | F1 | RC2 | Does feature X predict target Y? | **BTC → {ETH,LTC,SOL} at lag 1 (p<0.05)** |
+| Permutation Entropy | — | RC2, Phase 12 | Is data near-random-walk? | **H_norm = 0.9977 (dollar), 0.9740 (vol_imbalance)** |
+| GARCH(1,1) | — | RC2 | Is volatility persistent? | **Persistence = 1.000 (near-IGARCH) all 4 assets** |
 
 ---
 
@@ -488,11 +579,11 @@ src/app/
 │   ├── domain/
 │   ├── application/
 │   └── infrastructure/
-├── features/                  # [NEW] Feature engineering + validation
+├── features/                  # [EXISTS] Feature engineering + validation (Phase 4)
 │   ├── domain/
 │   ├── application/
 │   └── infrastructure/
-├── profiling/                 # [NEW] Statistical profiling per asset
+├── profiling/                 # [NEW] Statistical profiling per asset (Phase 5 — largely done via RC2)
 │   ├── domain/
 │   └── application/
 ├── backtest/                  # [NEW] Trading simulation engine
@@ -710,8 +801,8 @@ or `ALTER TABLE` outside of migration files.
 
 This applies to every phase that introduces new tables or modifies existing ones:
 Phase 1 (OHLCV already migrated), Phase 2 (bars table), Phase 5 (features table),
-Phase 7 (backtest results), Phase 9/10 (forecast outputs), Phase 12 (recommendations),
-Phase 16 (live trading state).
+Phase 8 (backtest results), Phase 10/11 (forecast outputs), Phase 12 (recommendations),
+Phase 17 (live trading state).
 
 ---
 
@@ -906,10 +997,15 @@ per López de Prado.
 
 ---
 
-## Phase 4: Feature Engineering
+## Phase 4: Feature Engineering ✅ COMPLETED
 
 **Goal:** Compute features from OHLCV / bar data. Target is now **future log return** (regression),
 not direction (classification).
+
+**Status:** COMPLETED. 23 features across 5 groups (Returns, Volatility, Momentum, Volume,
+Statistical). Three-gate validation (MI + Ridge DA + Temporal Stability) implemented with
+Benjamini-Hochberg correction. Fallback mechanism triggered (0/23 passed all 3 gates).
+See `4d_report.md` for Phase 4D review.
 
 > **RC1 inputs (Phase 3):**
 > - **Assets:** BTCUSDT, ETHUSDT, LTCUSDT, SOLUSDT (all 4 passed quality filters)
@@ -966,12 +1062,17 @@ not direction (classification).
 
 ---
 
-## Phase 5: Statistical Profiling
+## Phase 5: Statistical Profiling ✅ LARGELY COMPLETE (via RC2)
 
 **Goal:** Generate statistical profile per asset to understand data properties and justify
 modeling choices. Every profiling result must connect to a downstream modeling decision
 ("Therefore..."). Phase 5 also hardens the Phase 4D validation pipeline and establishes
 the project-level temporal partition that all subsequent phases must respect.
+
+**Status (Updated after RC2 audit, 2026-03-25):** The majority of Phase 5 profiling was
+completed within the RC2 notebook (Sections 2, 4, 5, 6). Remaining closure items are
+now Phase 7 (below). Each is self-contained and delegatable.
+
 
 > **RC1 overlap:** Phase 3 already computed return distributions (JB test, kurtosis, skewness),
 > ACF/PACF analysis, and Ljung-Box tests for BTCUSDT across all bar types. Phase 5 extends
@@ -1000,8 +1101,8 @@ that declares authoritative data boundaries respected by ALL subsequent phases:
 | Partition | Period | Used By |
 |-----------|--------|---------|
 | **Feature selection** | 2020-01-01 → 2022-12-31 | Phase 4D validation (MI, Ridge DA, stability) |
-| **Model development** | 2020-01-01 → 2023-12-31 | Phase 9-10 walk-forward (CPCV within this range) |
-| **Final holdout** | 2024-01-01 → end of data | Phase 14 evaluation only — never touched before |
+| **Model development** | 2020-01-01 → 2023-12-31 | Phase 11-10 walk-forward (CPCV within this range) |
+| **Final holdout** | 2024-01-01 → end of data | Phase 15 evaluation only — never touched before |
 
 - Re-run Phase 4D validation restricted to the **feature selection partition** only.
   The current `kept_feature_names` was computed on full data (2020-2026), which contaminates
@@ -1157,7 +1258,7 @@ which tests are valid. Add to `ProfilingConfig`:
     clustering (Ljung-Box on z_t² should not reject after GARCH).
   - **BDS test on standardized GARCH residuals** (embedding dimensions m = {2, 3, 4, 5}):
     If BDS rejects i.i.d. at multiple dimensions → nonlinear structure remains after
-    GARCH → justifies using nonlinear ML models in Phase 9. If BDS does NOT reject →
+    GARCH → justifies using nonlinear ML models in Phase 11. If BDS does NOT reject →
     document honestly that linear volatility models may suffice.
   - **Rolling realized volatility** (all bar types, not just time_1h):
     - Reuse `rv_12`, `rv_24`, `rv_48` from Phase 4A feature set where applicable.
@@ -1286,7 +1387,47 @@ which tests are valid. Add to `ProfilingConfig`:
 
 ---
 
-## Phase 6: Research Checkpoint 2 — Features, Profiling & Data Adequacy
+## Phase 6: Research Checkpoint 2 — Features, Profiling & Data Adequacy ✅ COMPLETED
+
+**Status:** COMPLETED (2026-03-24). Full results in `research/RC2_analysis.md`.
+Pre-registration followed exactly — 0 post-hoc deviations. Overall decision: **GO with constraints.**
+
+### RC2 Key Findings
+
+| Finding | Value | Implication |
+|---------|-------|-------------|
+| Features passing 3-gate validation | 5/23 (fallback triggered) | Volatility/volume features dominate; all returns/momentum dropped |
+| Best single-feature DA (dollar bars) | 51.81% (ret_zscore_24) | +1.81 pp over random, **-5.42 pp below break-even DA** |
+| Break-even DA (BTCUSDT/dollar) | 57.23% | High bar due to small per-bar returns; 0/23 features profitable individually |
+| Permutation entropy (d=5, dollar) | 0.9977 | Near-random-walk on primary bars — consistent with R5 |
+| PE (vol_imbalance, d=5) | 0.9740 | Below 0.98 threshold — structure exists on imbalance bars |
+| Best DA excess (any bar type) | +4.47 pp (BTCUSDT/vol_imbalance) | Strongest signal on small-N bar type |
+| BDS on GARCH residuals | Rejects i.i.d. for all 4 assets | Nonlinear structure justifies ML (Rule M1 PASS) |
+| GARCH persistence (alpha + beta) | 1.000 (near-IGARCH for all 4 assets) | Strong volatility memory -> vol forecasting viable |
+| Kendall tau (cross-asset MI) | 0.571 (p < 0.0001) | Shared features across 3 assets -> pooled training supported |
+| Buy-and-hold Sharpe | 0.576 | Positive drift — strategies must beat this hurdle |
+| Deep Learning gate | OPEN | N_eff >= 2,000, >= 3 features, BDS rejects |
+| BTC Granger-causes altcoins | All 3 at lag 1 (p < 0.05) | BTC-lagged features justified for altcoin models |
+| Post-hoc deviations | 0 | Pre-registration integrity maintained |
+| DSR trial count | 60 (pre-registered) | 4 assets x 5 bar_types x 3 horizons |
+| Fallback features (kept) | rv_12, rv_24, rv_48, bbwidth_20_2.0, amihud_24 | All volatility/volume group — no returns or momentum |
+| MI temporal stability | Concentrated in 2022-2023 window | Signal is regime-conditional, not persistent |
+| LTCUSDT dollar bars | 199 bars only | Excluded from dollar-bar pipeline; viable on volume bars (N=26,986) |
+| Imbalance bar viability | 0/8 pass Rule A1 (N >= 1,000) | Tier B/C only — exploratory, not primary |
+
+### RC2 Decisions Affecting Downstream Phases
+
+1. **Signal is weak but real.** No single feature exceeds break-even DA. The path to
+   profitability runs through multi-feature combination, regime-conditional deployment,
+   and volatility-targeting — not single-feature prediction.
+2. **Volatility features dominate.** Regression arm (SIZE/volatility) is more promising
+   than classification arm (SIDE/direction). Phase ordering adjusted accordingly.
+3. **LTCUSDT excluded from dollar bars** (199 bars). Remains viable on volume bars (26,986).
+4. **Imbalance bars are exploratory only** (lowest PE, best DA excess, but 0/8 viable N).
+5. **Full 23-feature set** should be used for modeling with strong regularization, not
+   just the fallback 5. The fallback defines the minimum; regularization handles the rest.
+6. **Regime-conditional activation essential** for the recommendation system. PE = 0.9977
+   means the system should default to NO-TRADE and activate during regime transitions.
 
 **Goal:** Deep analysis of features and statistical properties. Answer: "Is our data
 sufficient and do our features carry signal for return regression?" Every section must
@@ -1513,10 +1654,144 @@ Define mechanical decision criteria before any analysis:
 
 ---
 
-## Phase 7: Backtest Engine
+## Phase 7: Profiling Closure & Data Adequacy Finalization
+
+**Goal:** Complete the remaining Phase 5 profiling closure items before proceeding to
+the backtest engine. Each sub-task is self-contained and can be parallelized.
+
+**Status:** CURRENT. Must complete before Phase 8.
+
+#### 7.1 — Cost Sensitivity Analysis (Audit C3)
+
+**Input:** Break-even DA formula from RC2 Section 4; mean |r_t| per (asset, bar_type) from RC2.
+**Output:** Table of break-even DA at {10, 15, 20, 25, 30} bps for all (asset, bar_type) in the
+canonical sample size table. ~15 lines of code.
+
+```
+break_even_DA(cost) = 0.5 + cost / (2 * mean(|r_t|))
+```
+
+| Cost (bps) | BTCUSDT/dollar | ETHUSDT/dollar | SOLUSDT/dollar | Interpretation |
+|-----------|----------------|----------------|----------------|----------------|
+| 10 | ~53.6% | ... | ... | VIP Binance tier |
+| 15 | ~55.4% | ... | ... | Maker only |
+| 20 | ~57.2% | ... | ... | Standard tier (current assumption) |
+| 25 | ~59.1% | ... | ... | Including slippage |
+| 30 | ~60.9% | ... | ... | Conservative with slippage |
+
+**Acceptance criteria:** Table in RC2 analysis appendix. At 10 bps, the gap between best DA
+(51.81%) and break-even narrows from 5.42 pp to ~1.79 pp — material for the feasibility argument.
+
+**Files:** Extend `research/RC2_features_and_profiling.ipynb` with a new cell; add results to
+`research/RC2_analysis.md`.
+
+#### 7.2 — atr_14 / rsi_14 Constant-Feature Investigation (Audit C4)
+
+**Input:** RC2 Section 2 flags atr_14 and rsi_14 as constant in multiple (asset, bar_type) combinations.
+**Output:** Root cause determination + decision on whether to drop from dollar-bar feature set.
+
+Steps:
+1. Check variance of atr_14 and rsi_14 on BTCUSDT/dollar bars specifically
+2. If variance < 1e-10: the features are degenerate on dollar bars (OHLC relationships
+   are too uniform due to dollar-volume normalization)
+3. If degenerate: drop from dollar-bar feature set (23 → 21 for dollar bars). Document reason.
+   Keep in volume/time bar feature sets if they have variance.
+4. If not degenerate: the stationarity test skip was due to a computation edge case. Keep.
+
+**Acceptance criteria:** Written determination in RC2 analysis. Feature count per bar type updated.
+
+**Files:** Add investigation cell to `research/RC2_features_and_profiling.ipynb`.
+
+#### 7.3 — Stationarity Transformation Policy Clarification (Audit B3)
+
+**Input:** RC2 Section 2 identified 40 unit-root cases (10.2%) across 391 tests.
+**Output:** Explicit policy document for which features get transformed and when.
+
+Policy:
+- If a feature is **unit_root on the PRIMARY bar type (dollar)**: apply the transformation
+  globally across all bar types. Dollar-bar stationarity is what matters for modeling.
+- If a feature is **unit_root only on secondary bar types** (volume, imbalance): flag in
+  documentation but do NOT transform. The primary-bar-type result governs.
+- If a feature is **inconclusive** (atr_14, rsi_14 — skipped due to constant values): handle
+  per 7.2 determination.
+- Transformations (from RC2 Section 2): atr_14 → pct_atr, amihud_24 → rolling_zscore,
+  hurst_100 → first_difference, bbwidth_20_2.0 → first_difference.
+
+**Acceptance criteria:** Policy documented in implementation plan. Any transformed feature
+is re-verified for stationarity after transformation (ADF + KPSS).
+
+#### 7.4 — MI Normalization Fix (Audit Gap 5)
+
+**Input:** RC2 Section 3.3 reported MI/H(target) normalization issue (H(target) = -2.5371 nats,
+negative differential entropy makes the percentage unreliable).
+**Output:** Replace MI/H(target) with Normalized Mutual Information (NMI) where
+`NMI = MI / min(H(feature), H(target))` or `NMI = MI / sqrt(H(feature) * H(target))`.
+
+For continuous variables with negative differential entropy, use either:
+- MI as raw nats (already valid for ranking)
+- MI / H(feature) (feature entropy is always positive for reasonable features)
+- Normalized MI bounds from Kraskov et al. (2004)
+
+**Acceptance criteria:** Updated MI tables use NMI or clearly documented alternative.
+No change to the kept/dropped decision (raw MI p-values remain valid).
+
+**Files:** Update `src/app/features/application/validation.py` if MI normalization is used
+downstream; otherwise document the fix in the RC2 analysis only.
+
+#### 7.5 — LTCUSDT Volume-Bar Profiling
+
+**Input:** LTCUSDT excluded from dollar bars (199 bars). Volume bars (N=26,986) are viable.
+**Output:** Full profiling of LTCUSDT on volume bars: stationarity, MI, Ridge DA, temporal
+stability. Confirm that LTCUSDT is viable on volume bars for cross-validation purposes.
+
+**Acceptance criteria:** LTCUSDT/volume profiling results appended to RC2 analysis.
+LTCUSDT included in volume-bar modeling pipeline (Phases 10–11) alongside the other 3 assets.
+
+#### 7.6 — Conditional Break-Even DA (Audit Gap 1, B1)
+
+**Input:** Break-even DA formula; RC2 Section 5.6 regime classification (HIGH/NORMAL/LOW volatility).
+**Output:** Conditional break-even DA computed on the HIGH-volatility regime subset only.
+
+```
+break_even_DA_conditional = 0.5 + cost / (2 * mean(|r_t| | traded))
+```
+
+Where "traded" = HIGH-volatility regime bars (which the recommender selects).
+If mean(|r_t| | HIGH regime) > mean(|r_t| | all bars), the conditional break-even DA is LOWER,
+directly demonstrating the recommender's value proposition.
+
+**Acceptance criteria:** Conditional break-even DA computed for each (asset, bar_type).
+Included in the RC2 analysis as evidence for the recommender's feasibility.
+
+#### 7.7 — SOLUSDT Tier B Handling Protocol (Audit Gap 4)
+
+**Input:** SOLUSDT dollar bars are Tier B (N_eff = 808, MDE DA = 54.37%).
+**Output:** Explicit protocol for how SOLUSDT results are handled in all downstream phases.
+
+Protocol:
+- All SOLUSDT/dollar results are **flagged with "Tier B" label** in every table and chart
+- SOLUSDT/dollar uses **stronger regularization**: Ridge alpha × 2, LightGBM min_child_samples × 2
+- SOLUSDT results reported with **bootstrapped 95% CIs** (BTC/ETH can use asymptotic CIs)
+- SOLUSDT is NOT used as primary evidence for thesis claims — it serves as a robustness check
+- For RC4 criterion "majority of assets positive": SOLUSDT counts but with the Tier B flag
+
+**Acceptance criteria:** Protocol documented here and referenced in Phases 10, 11, 12, 14.
+
+
+---
+
+## Phase 8: Backtest Engine
 
 **Goal:** Simple, correct backtesting engine with realistic execution modeling.
 Fill on next bar open, fixed costs, minimum trade threshold.
+
+> **Updated after RC2 (2026-03-24):**
+> - Add a **cost-sensitivity parameter** to the backtest engine (not just 20 bps). RC2 showed
+>   break-even DA varies significantly with fee tier (52-75% depending on bar type and cost).
+> - Implement **regime-conditional position sizing**: reduce exposure during HIGH-entropy
+>   periods (PE > 0.98) and increase during LOW-entropy periods (PE-guided).
+> - The backtest must treat **buy-and-hold Sharpe = 0.576** as the hurdle rate. Any strategy
+>   below this has negative alpha despite possibly having positive absolute return.
 
 ### Theoretical Foundation
 
@@ -1553,14 +1828,14 @@ captures this heterogeneity without over-engineering a full order book model.
 **Random Strategy Baseline (White, 2000 — Reality Check):** A strategy that cannot
 statistically beat random entry has no edge. The RandomStrategy generates signals with the
 same frequency distribution as the real strategy but random timing. Comparing real vs.
-random Sharpe via permutation test directly supports Phase 14's Monte Carlo validation and
+random Sharpe via permutation test directly supports Phase 15's Monte Carlo validation and
 is the first line of defense against overfitting.
 
-### 7A: Core Domain Model
+### 8A: Core Domain Model
 
 - **`src/app/backtest/domain/value_objects.py`** —
   - `Side` enum (LONG, SHORT)
-  - `ExecutionConfig` — commission_bps (default 10), asset_cost_multiplier (dict), min_trade_count (default 30)
+  - `ExecutionConfig` — commission_bps (default 10), asset_cost_multiplier (dict), min_trade_count (default 30), **cost_sweep_bps** (list, default `[5, 10, 15, 20, 30]` — *Updated after RC2* for cost sensitivity analysis)
   - `TradeResult` — entry_price, exit_price, side, size, entry_time, exit_time, gross_pnl, net_pnl, commission_paid
   - `PortfolioSnapshot` — timestamp, equity, cash, positions, unrealized_pnl, drawdown
 
@@ -1573,7 +1848,7 @@ is the first line of defense against overfitting.
   - `IStrategy` protocol — `on_bar(timestamp, features, portfolio) -> list[Signal]`
   - `IPositionSizer` protocol — `size(signal, portfolio, volatility) -> float`
 
-### 7B: Execution Layer
+### 8B: Execution Layer
 
 - **`src/app/backtest/application/execution.py`** — `ExecutionEngine`:
   - Sequential bar loop: `for bar in bars: signal = strategy.on_bar(bar)` (~300 LOC total)
@@ -1587,13 +1862,16 @@ is the first line of defense against overfitting.
 
 - **`src/app/backtest/application/position_sizer.py`** —
   - `FixedFractionalSizer` — `size = equity × fraction / price`. Signal → position size mapping.
+  - `RegimeConditionalSizer` — *(Updated after RC2)* scales position by
+    `max(0, (DA_estimate - break_even_DA) / break_even_DA)`. When DA < break-even, size = 0
+    (NO-TRADE). When PE > 0.98 (near-random-walk), reduce by 50%.
   - Implements `IPositionSizer` protocol.
 
 - **`src/app/backtest/application/cost_sweep.py`** —
   - `run_with_cost_sweep(strategy, data, fees=[5, 10, 15, 20])` → dict of results per fee level.
     ~50 lines. Shows at what cost level strategy alpha disappears.
 
-### 7C: Metrics Layer (independently testable)
+### 8C: Metrics Layer (independently testable)
 
 - **`src/app/backtest/application/metrics.py`** —
   - **Return metrics:** total return, annualized return, CAGR
@@ -1605,14 +1883,14 @@ is the first line of defense against overfitting.
   - All metrics computed on the equity curve / trade list
   - **Buy-and-hold benchmark** auto-computed per run for comparison
 
-### 7D: Baselines
+### 8D: Baselines
 
 - **`src/app/backtest/application/baselines.py`** —
   - `RandomStrategy` — generates signals with same frequency distribution as real strategy
     but random timing (White, 2000). ~30 lines.
   - `BuyAndHoldStrategy` — enter long at start, hold to end. The absolute floor.
 
-### 7E: Walk-Forward Framework
+### 8E: Walk-Forward Framework
 
 - **`src/app/backtest/application/walk_forward.py`** — `WalkForwardRunner`:
   - Configurable window: expanding or rolling
@@ -1620,7 +1898,7 @@ is the first line of defense against overfitting.
   - Aggregate results across windows
   - Output: per-window metrics + aggregate metrics
 
-### 7F: Tests
+### 8F: Tests
 
 - Unit test: commission calculation on known inputs
 - Unit test: position sizer produces correct sizes
@@ -1636,10 +1914,21 @@ is the first line of defense against overfitting.
 
 ---
 
-## Phase 8: Base Trading Strategies
+## Phase 9: Base Trading Strategies
 
-**Goal:** Implement three diverse strategies with orthogonal regime profiles for the
+**Goal:** Implement diverse strategies with orthogonal regime profiles for the
 recommender to learn conditional deployment.
+
+> **Updated after RC2 (2026-03-24):**
+> - **Deprioritize pure directional strategies.** RC2 showed DA < break-even for all 23
+>   features on dollar bars. Strategies relying solely on direction prediction will lose
+>   money after costs (best DA 51.81% vs break-even 57.23%).
+> - **Add volatility-targeting strategies.** The strong volatility-clustering signal
+>   (rv_24, rv_48 are top features, GARCH persistence = 1.000) suggests strategies that
+>   size positions inversely to volatility could be effective even without directional edge.
+> - **Add NO-TRADE strategy.** Stands aside when PE > 0.98 or volatility is in the LOW
+>   regime. This is the recommendation system's most basic value-add — knowing when NOT
+>   to trade is more valuable than knowing which direction to trade.
 
 ### Theoretical Foundation
 
@@ -1675,14 +1964,14 @@ meaning bands are violated much more frequently. Widening to 2.5σ or using Stud
 quantile-based bands (at the fitted ν from Phase 5A) restores the intended containment
 probability.
 
-### 8A: Strategy Interface
+### 9A: Strategy Interface
 
 - **`src/app/strategy/domain/protocols.py`** — `IStrategy` protocol:
   - `generate_signals(feature_set: FeatureSet) -> pl.DataFrame` — strategies consume
     FeatureSet (from Phase 4), not raw OHLCV. Eliminates duplicate indicator computation.
   - `name() -> str`
 
-### 8B: Strategies
+### 9B: Strategies
 
 - **`src/app/strategy/application/momentum_crossover.py`** — EMA crossover with ATR-based
   stops. Long when fast > slow, short when fast < slow. Parameters: fast_period, slow_period,
@@ -1698,142 +1987,90 @@ probability.
   **Hurst filter:** signal only when `hurst_100 < 0.5` (~5 lines).
   **Widen Bollinger to 2.5σ** (or Student-t quantile bands if available from Phase 5A).
 
-### 8C: Tests
+- **`src/app/strategy/application/volatility_targeting.py`** — *(Added after RC2)*
+  Inverse-volatility position sizing: `size ∝ target_vol / realized_vol`. Leverages the
+  strong vol-clustering signal (rv_24, rv_48 are top RC2 features, GARCH persistence =
+  1.000). Does not require directional prediction — profitable if buy-and-hold has positive
+  drift (Sharpe = 0.576) and vol targeting reduces drawdowns.
+
+- **`src/app/strategy/application/no_trade.py`** — *(Added after RC2)*
+  NO-TRADE strategy: stands aside when permutation entropy > 0.98 (d=5) or volatility
+  regime is LOW. This is the baseline for the recommendation system's value-add: the
+  simplest possible "know when not to trade" filter. ~30 lines.
+
+### 9C: Tests
 
 - Unit test: each strategy on synthetic trending/mean-reverting data
 - Backtest: run each strategy through engine on historical data
 - Verify strategies produce different signal patterns (pairwise Jaccard similarity < 0.5)
 
-**Dependencies:** Phase 4 (features), Phase 7 (backtest engine)
+**Dependencies:** Phase 4 (features), Phase 8 (backtest engine)
 **Estimated scope:** ~6 files, ~350 lines
 
 ---
 
-## Phase 9: Direction Classification Models
+## Phase 10-pre: Ensemble DA Gating Test (Audit C1, E1)
 
-**Goal:** Predict the **direction** of future price movement (up/down).
-This is the first forecasting track — classification determines the **side** of the trade.
+**Goal:** Pre-registered test of whether multi-feature combination can push DA above the break-even
+threshold. This is the single most important gating decision after RC2 — the thesis's central bet.
 
-> **Two-track forecasting design (inspired by López de Prado's meta-labeling):**
-> - **Track 1 (Phase 9):** Classification → predict direction (up/down) → determines SIDE
-> - **Track 2 (Phase 10):** Regression → predict return magnitude → determines SIZE
-> - **Combined:** Classification picks the side, regression estimates how much.
->   The recommendation system (Phase 12) consumes BOTH outputs.
+**Status:** NOT YET STARTED. Must complete before full Phase 10/11 modeling.
 
-### Theoretical Foundation
+> **Pre-registration:** This test is defined NOW, before seeing results. Any modification to
+> the test after seeing results constitutes a post-hoc deviation and increments the DSR trial count.
 
-**CPCV with Purging and Embargo (López de Prado, 2018 Ch. 7, 12):** Standard k-fold CV on
-financial time series produces wildly optimistic results because: (a) training and test folds
-share temporal neighbors with autocorrelated features, (b) forward-looking labels (shift-based
-targets) create overlap zones. CPCV fixes this with three mechanisms:
-- **Purging:** Remove training samples whose label period overlaps with any test sample's
-  feature period. For horizon h=1, purge at least 1 bar around each fold boundary.
-- **Embargo:** After purging, remove an additional buffer to account for serial correlation
-  in features. Embargo = autocorrelation decay length (from Phase 5 ACF analysis).
-- **Combinatorial:** Test all C(N, k) train/test combinations for a full performance
-  distribution, not just a point estimate.
+### 10-pre.A: Test Specification
 
-**Cross-Asset Temporal Purging (Leakage Prevention):** When pooling 4 assets with BTC-ETH
-correlation ~0.85, training on ETH at time `t` while testing on BTC at time `t` gives the
-model a free preview of ~85% of the test signal. The correct implementation purges ALL assets
-in the temporal window `[t - embargo, t + h + embargo]`, not just the test asset. This is the
-single most impactful leakage vector identified by R5.
+**Test:** Train 23-feature Ridge classifier and 23-feature LightGBM classifier on
+BTCUSDT/dollar bars, fwd_logret_1 (the primary configuration).
 
-**Deep Learning on Small Tabular Data (Grinsztajn et al., 2022; Borisov et al., 2022):**
-Systematic benchmarks show that gradient-boosted trees (XGBoost, LightGBM) outperform deep
-learning on tabular data below ~10,000 samples. With ~5,000 dollar bars per asset (pooled to
-~20,000), tree methods are expected to dominate. A Transformer with 50K+ parameters will
-memorize noise. A small GRU (2-layer, 64 hidden) serves as a controlled negative-result
-experiment: "Confirms R5: crypto noise does not reward model complexity." This is valid
-thesis content — honest negative results demonstrate understanding.
+**Evaluation:** CPCV with C(6,2) = 15 combinations, purge = 1 bar, embargo = ACF decay length.
+Report: mean OOS DA across 15 folds, 95% CI from fold distribution.
 
-**Confidence-Based Abstention (Chow, 1970; El-Yaniv & Wiener, 2010):** A classifier forced
-to predict on every bar wastes capacity on the ~80% where direction is essentially random
-(near-Brownian). Allowing abstention when `P(up) ∈ [0.4, 0.6]` concentrates evaluation on
-high-conviction predictions. Reporting DA at multiple confidence thresholds
-`{0.5, 0.55, 0.6, 0.65, 0.7}` alongside coverage shows the accuracy-coverage tradeoff —
-a model with DA=56% on 30% of bars is vastly more economically useful than DA=51% on 100%.
-This IS the two-track system's economic core: the classifier is a filter, not an oracle.
+**Decision thresholds (pre-registered):**
+- If **either** Ridge DA or LightGBM DA > break-even DA (57.23%): **FULL GO** — proceed with
+  directional trading as the primary thesis narrative.
+- If **either** DA > majority class DA (51.14%) with p < 0.05 (binomial test): **CONDITIONAL GO** —
+  proceed with directional trading as secondary, volatility forecasting as primary.
+- If **neither** DA > majority class DA at p < 0.05: **PIVOT** — downgrade the directional arm
+  to exploratory. Re-focus thesis on: (a) volatility forecasting + risk management as the
+  primary contribution, (b) information-theoretic limits on crypto prediction as a secondary
+  contribution, (c) the recommendation system as a risk filter, not a directional trader.
 
-**Sign Target vs Triple Barrier (simplification rationale):** Triple barrier labeling
-(López de Prado, 2018 Ch. 3) creates a 3-class problem (take-profit hit, stop-loss hit,
-time expiry). The "time expiry" class typically captures 40-60% of samples, halving per-class
-counts to ~1200. For a bachelor's thesis, binary `sign(fwd_logret_h)` is cleaner, easier to
-defend, and sufficient. Triple barrier can be noted as future work.
+**All three outcomes are valid thesis contributions.** The PIVOT outcome produces:
+"We confirm that multi-feature combination does not overcome the Brownian noise barrier on
+dollar bars. The thesis contributes an empirical upper bound on directional predictability
+for crypto alternative bars and demonstrates that volatility forecasting + risk management
+is the viable path."
 
-### 9A: Classification Domain & CPCV Infrastructure
+### 10-pre.B: Volatility Forecasting Feasibility Check
 
-- **`src/app/forecasting/domain/value_objects.py`** —
-  - `ForecastHorizon` enum (H1, H4, H24)
-  - `DirectionForecast` — predicted_direction (+1/-1), confidence (probability), horizon
-  - `ReturnForecast` — predicted_return (point estimate), prediction_std, quantiles, confidence_interval
+Run alongside the DA gating test:
+- Train Ridge and LightGBM regressors on BTCUSDT/dollar, target = forward_rv_1 (1-bar
+  forward realized volatility).
+- Metrics: QLIKE loss, Mincer-Zarnowitz R², MAE on log-vol.
+- Compare against GARCH(1,1) baseline (already fitted in RC2 Section 5.5).
+- If R² > 0 and QLIKE(ML) < QLIKE(GARCH): volatility forecasting is viable and becomes
+  the primary regression target in Phase 10.
 
-- **`src/app/forecasting/domain/protocols.py`** —
-  - `IDirectionClassifier` protocol: `fit(X, y_direction)`, `predict(X) -> list[DirectionForecast]`
-  - `IReturnRegressor` protocol: `fit(X, y_return)`, `predict(X) -> list[ReturnForecast]`
+### 10-pre.C: Implementation
 
-- **`src/app/forecasting/infrastructure/cpcv.py`** — `CPCVSplitter`:
-  - Shared infrastructure used in Phase 9, 10, 12
-  - Parameters: n_blocks, purge_window, embargo_window
-  - **Cross-asset temporal purging** — purge ALL assets in `[t - embargo, t + h + embargo]`
-  - Returns train/test indices with proper leakage prevention
+**Files to create/modify:**
+- `research/RC2_gating_test.ipynb` — Standalone notebook with the gating test
+- No new src/ files needed — reuses existing `CPCVSplitter` (Phase 11A infrastructure),
+  Ridge from sklearn, LightGBM from lightgbm
 
-### 9B: Classification Target Construction
+**Inputs:** Feature matrix from Phase 4 (BTCUSDT/dollar), classification targets, CPCV infrastructure.
+**Outputs:** DA results, fold distribution, p-values, GO/CONDITIONAL GO/PIVOT decision.
 
-- **`src/app/features/application/targets.py`** — Extend with classification targets:
-  - `forward_direction(horizon)` = `sign(fwd_logret_h)` → +1 or -1
-  - Start with binary sign target. Triple barrier noted as future work.
+**Acceptance criteria:**
+- Gating test notebook runs end-to-end
+- Decision is mechanically computed from pre-registered thresholds
+- Result documented in implementation plan with the binding decision
+- If PIVOT: Phases 10 and 11 are rewritten to reflect the new primary/secondary ordering
 
-### 9C: Classifiers (3 models)
-
-- **`src/app/forecasting/application/logistic_baseline.py`** — Logistic regression.
-  Interpretable baseline. Outputs calibrated probabilities.
-- **`src/app/forecasting/application/random_forest_clf.py`** — Random Forest classifier.
-  Non-linear, handles feature interactions. Feature importance for interpretability.
-- **`src/app/forecasting/application/gradient_boosting_clf.py`** — LightGBM classifier.
-  Strong tabular baseline. Outputs calibrated probabilities via Platt scaling.
-
-### 9D: GRU Negative-Result Experiment
-
-- **`src/app/forecasting/application/gru_classifier.py`** — GRU encoder (2 layers, 64
-  hidden) → sigmoid head for direction probability. Loss: binary cross-entropy.
-  **Purpose:** Controlled experiment to show tree dominance at this sample size
-  (Grinsztajn et al., 2022). Expected to underperform LightGBM — this is valid thesis
-  content documenting negative results.
-
-### 9E: Classification Metrics
-
-- **`src/app/forecasting/application/classification_metrics.py`** —
-  - **Accuracy:** % correct direction predictions — must beat 50% (coin flip baseline)
-  - **Precision / Recall / F1** per class (up/down): is the model biased toward one direction?
-  - **Confidence-based abstention** — DA at thresholds `{0.5, 0.55, 0.6, 0.65, 0.7}` with
-    coverage at each threshold. Accuracy-coverage tradeoff curves.
-  - **Calibration:** predicted probability vs actual frequency (reliability diagram).
-  - **AUC-ROC:** discrimination ability regardless of threshold
-  - **Economic accuracy:** accuracy weighted by |actual return|
-  - **Asymmetric class weighting** — penalize missed crashes more (crypto negative
-    skewness -0.36). Report weighted F1 alongside standard.
-
-### 9F: Sanity Checks
-
-- **Shuffled-labels sanity (Ojala & Garriga, 2010):** Train on permuted targets, verify
-  DA → 50%. If ANY model exceeds 50% on shuffled labels, the pipeline has a bug.
-- **Naive benchmarks:** majority-class, persistence (predict yesterday's direction),
-  momentum-sign (predict direction of trailing EMA).
-- **Asset pooling comparison:** Pool 4 assets with `asset_id` categorical (~14000+ samples)
-  vs per-asset training. Compare in RC3.
-
-### 9G: Tests
-
-- Unit test: logistic regression on linearly separable data → near-perfect accuracy
-- Convergence test: GRU loss decreases over epochs
-- Calibration test: predicted probabilities match observed frequencies
-- Null test: model trained on shuffled labels → accuracy ≈ 50%
-- CPCV test: verify no temporal leakage (train/test indices don't overlap after purging)
-- Cross-asset purge test: verify ETH training data purged when BTC is in test window
-
-**Dependencies:** Phase 4 (features + targets), `lightgbm`, `pytorch`
-**Estimated scope:** ~12 files, ~900 lines (including shared CPCV infrastructure)
+**Dependencies:** Phase 4 (features), Phase 11A (CPCV infrastructure — build this first)
+**Estimated scope:** 1 notebook (~15 cells), ~200 lines
 
 ---
 
@@ -1841,6 +2078,20 @@ defend, and sufficient. Triple barrier can be noted as future work.
 
 **Goal:** Predict the **magnitude** of future price movement (how much will it move).
 This is the second forecasting track — regression determines the SIZE of the position.
+
+> **Updated after RC2 (2026-03-24) — Phase ordering change:**
+> Phase 10 now runs **before** Phase 11 because RC2 showed volatility features dominate
+> and volatility forecasting is the strongest viable signal. The regression arm reframed:
+> - **Primary regression target: future realized volatility** (not return magnitude).
+>   Since all 5 fallback features are volatility/volume (rv_12, rv_24, rv_48,
+>   bbwidth_20_2.0, amihud_24), predicting future vol is more feasible than predicting
+>   return size. GARCH persistence = 1.000 confirms strong vol memory.
+> - **Secondary target: vol-normalized return magnitude** (exploratory).
+>   Direction-conditional regression remains viable but is framed as exploratory.
+>   Report DC-MAE alongside unconditional MAE.
+> - **Reframing for the recommendation system:** Instead of "how much will this trade
+>   make?" (hard), the SIZE prediction answers "how risky is this trade?" (defensible).
+>   This is more robust given the weak directional signal.
 
 > **Key principle:** Regression metrics (MAE, RMSE, R²) are only meaningful WHEN the direction
 > classifier is correct. A model predicting +2% when the actual move is -3% has low MAE but is
@@ -1888,21 +2139,26 @@ structural breaks. ACI (Adaptive Conformal Inference) partially addresses this b
 can hide 60% during volatile regimes (when intervals matter most).
 
 **Direction-Conditional Evaluation Bias:** DC-MAE/DC-RMSE are computed only where the
-Phase 9 classifier is correct. This biased subsample is NOT random — it likely has lower
+Phase 11 classifier is correct. This biased subsample is NOT random — it likely has lower
 volatility and smaller absolute returns (the "easy" predictions). Report: (a) fraction
 where classifier was correct, (b) mean |return| in correct vs wrong subsets, (c) KS test
 between distributions. This prevents misleading DC-MAE values.
 
-### 10A: Volatility-Normalized Target
+### 10A: Targets (Return + Volatility)
 
 - **`src/app/features/application/targets.py`** — Extend with:
-  - `fwd_zret_h = fwd_logret_h / backward_rv_h` — volatility-normalized target
-  - Runtime assertion: σ is backward-looking only (no future leakage)
+  - `fwd_zret_h = fwd_logret_h / backward_rv_h` — volatility-normalized return target
+  - `forward_rv_h = realized_vol(close, h)` — **forward realized volatility target** (Audit C2).
+    This is the primary regression target given RC2's finding that volatility features dominate.
+    Computed as standard deviation of log returns over the next h bars. Used only as a label
+    (forward-looking, never as a feature).
+  - Runtime assertion: σ in fwd_zret_h is backward-looking only (no future leakage)
   - **Winsorization at 1st/99th percentile** instead of hard [-0.15, 0.15] clip
     (which censors COVID crash, FTX, Luna events)
 
-### 10B: Regressors (4 models)
+### 10B: Regressors (5 models — including explicit vol forecasting, Audit C2)
 
+**Return magnitude regressors:**
 - **`src/app/forecasting/application/ridge_baseline.py`** — Ridge regression. Simple, fast,
   interpretable. Provides point estimate + residual std for uncertainty. **Huber loss option.**
 - **`src/app/forecasting/application/gradient_boosting_reg.py`** — LightGBM quantile
@@ -1911,9 +2167,26 @@ between distributions. This prevents misleading DC-MAE values.
 - **`src/app/forecasting/application/gru_regressor.py`** — GRU encoder (2 layers, 64 hidden)
   → linear head + **MC Dropout** (Gal & Ghahramani, 2016). N=50 forward passes at inference
   for epistemic uncertainty. Replaces GRU-MDN (saves weeks of training instability).
-- **`src/app/forecasting/application/arima_garch.py`** — ARIMA for conditional mean + GARCH
-  for conditional variance. **Time_1h bars only** — ARIMA assumes equal spacing.
-  Univariate baseline for comparison.
+
+**Volatility forecasting regressors (NEW — Audit C2):**
+- **`src/app/forecasting/application/har_rv.py`** — HAR-RV model (Corsi 2009). The standard
+  academic benchmark for realized volatility forecasting. Three regressors: daily RV, weekly
+  RV (5-bar), monthly RV (22-bar). Trivially simple OLS regression. This is the lowest-hanging
+  fruit given RC2's findings.
+- **`src/app/forecasting/application/arima_garch.py`** — GARCH(1,1) baseline for conditional
+  variance. **Time_1h bars only** — GARCH assumes equal spacing. Reports QLIKE and
+  Mincer-Zarnowitz R². Also serves as univariate return baseline (ARIMA conditional mean).
+- **LightGBM vol regressor:** Same `gradient_boosting_reg.py` but trained on `forward_rv_h`
+  target instead of `fwd_zret_h`. This tests whether ML improves over GARCH/HAR-RV for vol
+  forecasting.
+
+**Volatility forecasting metrics (NEW — Audit C2):**
+- **QLIKE loss:** `QLIKE = log(σ²_predicted) + σ²_actual / σ²_predicted`. The standard loss
+  function for volatility model comparison (Patton, 2011). Robust to noise in the proxy.
+- **Mincer-Zarnowitz R²:** Regress actual RV on predicted RV. R² measures how much variance
+  in realized vol is explained. Slope = 1 and intercept = 0 indicates unbiased forecasts.
+- **MAE on log-vol:** `MAE(log(σ_predicted), log(σ_actual))`. More interpretable than QLIKE
+  for thesis presentation.
 
 ### 10C: Calibration & Conformal Prediction
 
@@ -1923,149 +2196,239 @@ between distributions. This prevents misleading DC-MAE values.
   - Residual diagnostics: homoscedasticity, normality
   - **Coverage per regime** — report separately for high-vol and low-vol periods
 
-### 10D: Regression Metrics (Direction-Conditional)
+### 10D: Regression Metrics — Standalone vs Pipeline (Audit D1)
 
-> **These metrics are ALWAYS reported conditional on the direction classifier's prediction.**
-> Two evaluation modes:
-> - **Standalone regression:** evaluate on all samples, but report DA alongside MAE/RMSE
-> - **Pipeline regression:** evaluate ONLY on samples where direction classifier was correct
+> **Phase ordering clarification (Audit D1):** Since Phase 10 runs BEFORE Phase 11, only
+> STANDALONE metrics are available immediately. PIPELINE metrics (direction-conditional)
+> are computed AFTER Phase 11 completes, during Phase 13 (RC3).
 
+**STANDALONE metrics (available immediately in Phase 10):**
 - **`src/app/forecasting/application/regression_metrics.py`** —
+  - **Raw MAE, RMSE, R²** on all samples (for completeness)
+  - **Implicit DA:** directional accuracy of the regressor's sign prediction (sign(predicted)
+    vs sign(actual)). If regressor DA > classifier DA, the regressor alone may suffice.
+  - **CRPS:** Full distributional metric — primary metric for probabilistic forecasters
+  - **Prediction clipping** via Winsorization at inference
+
+**Volatility forecasting standalone metrics (NEW — computed immediately):**
+  - **QLIKE, Mincer-Zarnowitz R², MAE on log-vol** (see 10B above)
+  - **Comparison table:** GARCH(1,1) vs HAR-RV vs LightGBM on forward_rv_h
+
+**PIPELINE metrics (computed AFTER Phase 11, during Phase 13 / RC3):**
   - **DC-MAE (Direction-Conditional MAE):** MAE only where sign(predicted) == sign(actual)
   - **DC-RMSE:** Same, penalizes large errors on correct-direction predictions
   - **WDL (Wrong-Direction Loss):** Average |predicted - actual| where direction is wrong
   - **PDR (Profitable Direction Ratio):** When predicted return > threshold AND direction
     correct, what is avg realized return?
-  - **CRPS:** Full distributional metric — primary metric for probabilistic forecasters
   - **Economic Sharpe:** classifier picks side, regressor sizes position. Ultimate metric.
   - **Selection-bias characterization:** report correct-subset distribution vs full — fraction
     correct, mean |return| in correct vs wrong, KS test. Prevents misleading DC metrics.
-  - **Prediction clipping** via Winsorization at inference
 
 ### 10E: Tests
 
-- Unit test: Ridge on linear data → low DC-MAE
+- Unit test: Ridge on linear data → low MAE
 - Convergence test: GRU loss decreases
 - Calibration test: conformal intervals achieve target coverage
-- Null test: regressor on noise → DC-MAE ≈ unconditional MAE (no improvement)
+- Null test: regressor on noise → MAE ≈ unconditional MAE (no improvement)
 - Volatility normalization test: verify backward-only σ computation
 - Quantile monotonicity test: verify isotonic correction removes crossings
+- **HAR-RV test:** verify 3 regressors (daily, weekly, monthly RV) are correctly constructed
+- **QLIKE test:** verify QLIKE loss computation against known inputs
+- **Mincer-Zarnowitz test:** verify R² and slope/intercept computation
+- **Vol forecasting baseline:** GARCH(1,1) vol forecast on synthetic GARCH data should
+  achieve R² > 0.5 (known persistent vol)
 
-**Dependencies:** Phase 4 (features + targets), Phase 9 (direction classifier for conditional eval), `arch`, `statsmodels`, `lightgbm`, `pytorch`, `mapie`
-**Estimated scope:** ~10 files, ~900 lines
+**Dependencies:** Phase 4 (features + targets), Phase 10-pre (gating test determines scope),
+`arch`, `statsmodels`, `lightgbm`, `pytorch`, `mapie`
+**Note:** DC-MAE, DC-RMSE, Economic Sharpe depend on Phase 11 classifier output and are
+computed in Phase 13 (RC3), not here. See Audit D1 clarification in 10D.
+**Estimated scope:** ~14 files, ~1100 lines (increased for vol forecasting models)
 
 ---
 
-## Phase 11: Research Checkpoint 3 — Classification & Regression Evaluation
+## Phase 11: Direction Classification Models
 
-**Goal:** Evaluate BOTH forecasting tracks. Compare classification vs regression approaches.
-Can the classifier beat a coin flip? Does regression add value on top of correct direction?
-Are the two complementary? Split into 3 focused notebooks.
+**Goal:** Predict the **direction** of future price movement (up/down).
+This is the first forecasting track — classification determines the **side** of the trade.
+
+> **Updated after RC2 (2026-03-24) — Phase ordering change:**
+> Phase 10 (Regression) now runs **before** Phase 11 (Classification) because RC2 showed
+> volatility features dominate (all 5 fallback features are vol/volume) and directional
+> signal is extremely weak (best DA 51.81% vs break-even 57.23%). Starting with regression
+> leverages the strongest signal first and produces useful intermediate results.
+
+> **RC2-driven adjustments to classification expectations:**
+> - **Lower success criteria.** 0/23 features beat DA null on dollar bars. The success
+>   criterion is now: classifier DA > majority class DA (51.14%) with statistical
+>   significance, NOT classifier DA > break-even DA (57.23%). The latter is too stringent
+>   for single features — profitability comes from multi-feature combination + regime
+>   conditioning + risk management.
+> - **Try imbalance bars as exploratory for classification** despite small N. The +4.47 pp
+>   DA excess on vol_imbalance (with break-even DA of only 52.11%) is the strongest
+>   directional signal. Use strong regularization (Ridge, early stopping) to mitigate
+>   small-sample overfitting.
+> - **Add BTC-lagged features** for altcoin classifiers. RC2 confirmed BTC Granger-causes
+>   all 3 altcoins at lag 1 (p < 0.05).
+> - **Use all 23 features with regularization**, not just the fallback 5. The fallback
+>   mechanism is conservative; classifiers benefit from higher dimensionality even if
+>   individual features are weak, provided regularization is adequate (Ridge alpha via CPCV).
+> - **Ensemble over horizons:** Different features are informative at different horizons
+>   (logret_12 and roc_12 appear only for fwd_logret_4). Multi-horizon ensembling.
+
+> **Two-track forecasting design (inspired by López de Prado's meta-labeling):**
+> - **Track 1 (Phase 11):** Classification → predict direction (up/down) → determines SIDE
+> - **Track 2 (Phase 10):** Regression → predict return magnitude → determines SIZE
+> - **Combined:** Classification picks the side, regression estimates how much.
+>   The recommendation system (Phase 12) consumes BOTH outputs.
 
 ### Theoretical Foundation
 
-**Pre-Registration (Nosek et al., 2018; Chambers & Tzavella, 2022):** Pre-registration
-separates confirmatory from exploratory analysis. Writing decision criteria before opening
-notebooks converts researcher degrees of freedom into pre-committed mechanical rules. For
-a bachelor's thesis, this is unusually rigorous and will impress committee members.
+**CPCV with Purging and Embargo (López de Prado, 2018 Ch. 7, 12):** Standard k-fold CV on
+financial time series produces wildly optimistic results because: (a) training and test folds
+share temporal neighbors with autocorrelated features, (b) forward-looking labels (shift-based
+targets) create overlap zones. CPCV fixes this with three mechanisms:
+- **Purging:** Remove training samples whose label period overlaps with any test sample's
+  feature period. For horizon h=1, purge at least 1 bar around each fold boundary.
+- **Embargo:** After purging, remove an additional buffer to account for serial correlation
+  in features. Embargo = autocorrelation decay length (from Phase 5 ACF analysis).
+- **Combinatorial:** Test all C(N, k) train/test combinations for a full performance
+  distribution, not just a point estimate.
 
-**Statistical Power (Cohen, 1988):** Power = P(reject H₀ | H₁ true). With N_test = 500
-bars (one walk-forward fold for dollar bars) and α = 0.05, the minimum detectable accuracy
-above 50% at 80% power is ~54.5%. If realistic DA is 52-53%, the test WILL fail to reject —
-but this is a power problem, not a signal problem. Computing and reporting MDE per cell
-prevents misinterpreting non-rejection as evidence of no effect (the classical Type II error).
+**Cross-Asset Temporal Purging (Leakage Prevention):** When pooling assets (3 for dollar bars,
+4 for volume bars) with BTC-ETH correlation ~0.85, training on ETH at time `t` while testing on BTC at time `t` gives the
+model a free preview of ~85% of the test signal. The correct implementation purges ALL assets
+in the temporal window `[t - embargo, t + h + embargo]`, not just the test asset. This is the
+single most impactful leakage vector identified by R5.
 
-**Regime-Stratified Evaluation vs Giacomini-White (2006):** The GW conditional predictive
-ability test is elegant but requires choosing instrument variables, bandwidth, and has power
-issues at small N. A simpler approach with identical insight: run standard Diebold-Mariano
-tests separately on subsets (high-vol, low-vol, trending, ranging). This answers "is model A
-conditionally better?" without econometric machinery that is hard to debug. The theoretical
-cost: GW tests conditional superiority jointly; stratified DM tests it marginally per regime.
-For a bachelor's thesis with N < 5000, the marginal approach has higher power per regime.
+**Deep Learning on Small Tabular Data (Grinsztajn et al., 2022; Borisov et al., 2022):**
+Systematic benchmarks show that gradient-boosted trees (XGBoost, LightGBM) outperform deep
+learning on tabular data below ~10,000 samples. With ~5,000 dollar bars per asset (pooled to
+~20,000), tree methods are expected to dominate. A Transformer with 50K+ parameters will
+memorize noise. A small GRU (2-layer, 64 hidden) serves as a controlled negative-result
+experiment: "Confirms R5: crypto noise does not reward model complexity." This is valid
+thesis content — honest negative results demonstrate understanding.
 
-**Shuffled-Labels as Leakage Detector (Ojala & Garriga, 2010):** Training every model once
-on permuted targets and showing accuracy → 50% is the single most convincing anti-leakage
-proof. If ANY model exceeds 50% on shuffled labels, the pipeline has a bug. Cost: one extra
-training loop per model. Value: strongest defense against "is this just overfitting?"
+**Confidence-Based Abstention (Chow, 1970; El-Yaniv & Wiener, 2010):** A classifier forced
+to predict on every bar wastes capacity on the ~80% where direction is essentially random
+(near-Brownian). Allowing abstention when `P(up) ∈ [0.4, 0.6]` concentrates evaluation on
+high-conviction predictions. Reporting DA at multiple confidence thresholds
+`{0.5, 0.55, 0.6, 0.65, 0.7}` alongside coverage shows the accuracy-coverage tradeoff —
+a model with DA=56% on 30% of bars is vastly more economically useful than DA=51% on 100%.
+This IS the two-track system's economic core: the classifier is a filter, not an oracle.
 
-### 11A: Notebook `research/RC3_classification.ipynb`
+**Sign Target vs Triple Barrier (simplification rationale):** Triple barrier labeling
+(López de Prado, 2018 Ch. 3) creates a 3-class problem (take-profit hit, stop-loss hit,
+time expiry). The "time expiry" class typically captures 40-60% of samples, halving per-class
+counts to ~1200. For a bachelor's thesis, binary `sign(fwd_logret_h)` is cleaner, easier to
+defend, and sufficient. Triple barrier can be noted as future work.
 
-**Pre-register go/no-go decision tree** — mechanical criteria before seeing data.
+### 11A: Classification Domain & CPCV Infrastructure
 
-**Power analysis table** per (asset, bar_type) — MDE at 80% power. Know what effects are
-detectable before interpreting results.
+- **`src/app/forecasting/domain/value_objects.py`** —
+  - `ForecastHorizon` enum (H1, H4, H24)
+  - `DirectionForecast` — predicted_direction (+1/-1), confidence (probability), horizon
+  - `ReturnForecast` — predicted_return (point estimate), prediction_std, quantiles, confidence_interval
 
-**Classification evaluation:**
-- Per-model, per-asset, per-horizon: accuracy, precision, recall, F1, AUC-ROC
-- Comparison table: all classifiers × all assets → which model wins?
-- **Accuracy > 50% is the minimum bar** — binomial test: p-value for accuracy > 0.5
-- Confidence-based abstention curves: DA at `{0.5, 0.55, 0.6, 0.65, 0.7}` with coverage
-- Calibration plots: predicted probability vs actual frequency per model
-- Pooled vs per-asset comparison (from Phase 9F)
-- **Walk-forward equity curve visualization** — WHERE models fail, not just aggregate metrics
+- **`src/app/forecasting/domain/protocols.py`** —
+  - `IDirectionClassifier` protocol: `fit(X, y_direction)`, `predict(X) -> list[DirectionForecast]`
+  - `IReturnRegressor` protocol: `fit(X, y_return)`, `predict(X) -> list[ReturnForecast]`
 
-**Shuffled-labels sanity (Ojala & Garriga, 2010):** Every model trained on permuted targets.
-Verify DA → 50%.
+- **`src/app/forecasting/infrastructure/cpcv.py`** — `CPCVSplitter`:
+  - Shared infrastructure used in Phase 11, 10, 12
+  - Parameters: n_blocks, purge_window, embargo_window
+  - **Cross-asset temporal purging** — purge ALL assets in `[t - embargo, t + h + embargo]`
+  - Returns train/test indices with proper leakage prevention
 
-**Naive benchmark battery:** majority-class, persistence, momentum-sign.
+### 11B: Classification Target Construction & BTC-Lagged Features (Audit Gap 3)
 
-**Classification decision output:**
-- Best classifier(s) for direction prediction
-- Best horizon for direction prediction
-- Per-asset accuracy heatmap → which assets are predictable?
-- Is classification viable? (any model significantly > 50%?)
+- **`src/app/features/application/targets.py`** — Extend with classification targets:
+  - `forward_direction(horizon)` = `sign(fwd_logret_h)` → +1 or -1
+  - Start with binary sign target. Triple barrier noted as future work.
 
-### 11B: Notebook `research/RC3_regression.ipynb`
+- **`src/app/features/application/cross_asset_features.py`** — BTC-lagged features for altcoins:
+  - `btc_logret_lag1` = BTC log return at t-1 (for ETH, SOL, LTC models)
+  - `btc_rv_lag1` = BTC realized volatility at t-1
+  - `btc_direction_lag1` = sign(BTC return) at t-1
+  - Justification: RC2 Section 5.4 confirms BTC Granger-causes all altcoins at lag 1 (p < 0.05)
+  - Implementation: join BTC feature matrix on timestamp, shift by 1 bar, merge into altcoin
+    feature matrices. Requires careful temporal alignment when bar types differ across assets.
+  - For dollar/volume bars: use the most recent BTC bar completion timestamp <= current
+    altcoin bar timestamp (asof join).
+  - **Only for altcoin models** (ETH, SOL, LTC). BTC models do NOT include BTC-lagged features
+    (that would be autoregressive, which is already captured by return features).
 
-**Standalone regression evaluation:**
-- Per-model: raw MAE, RMSE (for completeness only — NOT decision metrics)
-- **DA (Directional Accuracy)** of regressors: do they implicitly get direction right?
-- If regressor DA > classifier accuracy → regressor alone may be sufficient
+### 11C: Classifiers (3 models)
 
-**Pipeline evaluation (classifier + regressor combined):**
-- Filter to samples where best classifier is correct → evaluate regressor DC-MAE, DC-RMSE
-- Scatter plots: predicted vs actual return, **only for correct-direction samples**
-- **Selection-bias characterization** — report correct-subset distribution vs full
-- **PDR:** when classifier says "up" AND regressor says "> +1%", how often is realized
-  return positive and > 0.5%?
+- **`src/app/forecasting/application/logistic_baseline.py`** — Logistic regression.
+  Interpretable baseline. Outputs calibrated probabilities.
+- **`src/app/forecasting/application/random_forest_clf.py`** — Random Forest classifier.
+  Non-linear, handles feature interactions. Feature importance for interpretability.
+- **`src/app/forecasting/application/gradient_boosting_clf.py`** — LightGBM classifier.
+  Strong tabular baseline. Outputs calibrated probabilities via Platt scaling.
 
-**Uncertainty evaluation:**
-- Calibration plots (reliability diagrams) per regressor
-- CRPS per model
-- Conformal interval coverage (overall + per regime)
-- Interval sharpness: narrower is better at same coverage
+### 11D: GRU Negative-Result Experiment
 
-**Shuffled-labels sanity** for regressors.
+- **`src/app/forecasting/application/gru_classifier.py`** — GRU encoder (2 layers, 64
+  hidden) → sigmoid head for direction probability. Loss: binary cross-entropy.
+  **Purpose:** Controlled experiment to show tree dominance at this sample size
+  (Grinsztajn et al., 2022). Expected to underperform LightGBM — this is valid thesis
+  content documenting negative results.
 
-**Naive benchmark battery:** random walk, EWMA, historical mean.
+### 11E: Classification Metrics
 
-### 11C: Notebook `research/RC3_combined_pipeline.ipynb`
+- **`src/app/forecasting/application/classification_metrics.py`** —
+  - **Accuracy:** % correct direction predictions — must beat 50% (coin flip baseline)
+  - **Precision / Recall / F1** per class (up/down): is the model biased toward one direction?
+  - **Confidence-based abstention** — DA at thresholds `{0.5, 0.55, 0.6, 0.65, 0.7}` with
+    coverage at each threshold. Accuracy-coverage tradeoff curves.
+  - **Calibration:** predicted probability vs actual frequency (reliability diagram).
+  - **AUC-ROC:** discrimination ability regardless of threshold
+  - **Economic accuracy:** accuracy weighted by |actual return|
+  - **Asymmetric class weighting** — penalize missed crashes more (crypto negative
+    skewness -0.36). Report weighted F1 alongside standard.
 
-**Economic evaluation (combined pipeline):**
-- **Economic Sharpe:** classifier picks side, regressor sizes position → equity curve
-- Compare: classifier-only (equal size), regressor-only (sign determines side), combined
-- Profit factor: gross profit from correct trades / gross loss from incorrect
-- **Walk-forward equity curve** showing WHERE combined outperforms/underperforms
+### 11F: Label Overlap Handling for fwd_logret_24 (Audit F5)
 
-**Statistical comparison:**
-- **Regime-stratified Diebold-Mariano** — DM test separately on high-vol, low-vol, trending,
-  ranging subsets. Same insight as Giacomini-White, more transparent at small N.
-- **Combined vs separate test:** Does (classifier + regressor) significantly beat
-  classifier-only? DM test on Economic Sharpe.
+For fwd_logret_24 (24-bar forward return), adjacent observations have 23 bars of label overlap.
+This inflates apparent predictive power because the model counts the same price move ~24 times.
 
-**Data adequacy:**
-- Is any classifier's accuracy significantly > 50%? (binomial test)
-- Is any regressor's DC-MAE significantly lower than unconditional MAE? (permutation test)
-- Is Economic Sharpe of combined pipeline significantly > 0? (bootstrap CI)
+**Mitigation options (choose one, document tradeoff):**
+1. **Non-overlapping subsampling:** Use every 24th bar for training/evaluation on fwd_logret_24.
+   Pro: clean, no overlap. Con: reduces N by 24× (BTCUSDT/dollar: 5,286 → ~220, too small).
+2. **Sequential bootstrapping (Lopez de Prado, 2018 Ch. 4):** Compute label uniqueness matrix,
+   weight training samples by average uniqueness. Pro: uses all data with proper weighting.
+   Con: more complex to implement (~100 LOC).
+3. **Effective information ratio:** Compute N_eff for overlapping labels using the label
+   uniqueness formula. Report alongside raw N. Pro: honest reporting. Con: does not fix the
+   training issue, only the evaluation.
 
-**Decision output:**
-- Select best classifier (or top-2) for the recommendation system
-- Select best regressor (or top-2) for the recommendation system
-- Confirm: does the combined pipeline outperform each alone?
-- Determine best forecast horizon
-- Assets where accuracy ≈ 50% → classification hopeless, flag for recommender
+**Recommendation:** Use option 2 (sequential bootstrapping) for model training on fwd_logret_24.
+Use option 3 (effective information ratio) for reporting. For fwd_logret_1 and fwd_logret_4,
+overlap is minimal (1 and 4 bars respectively) — standard CPCV purging handles this.
 
-**Estimated scope:** 3 notebooks (no artificial cell limits — be as thorough as needed)
+### 11G: Sanity Checks
+
+- **Shuffled-labels sanity (Ojala & Garriga, 2010):** Train on permuted targets, verify
+  DA → 50%. If ANY model exceeds 50% on shuffled labels, the pipeline has a bug.
+- **Naive benchmarks:** majority-class, persistence (predict yesterday's direction),
+  momentum-sign (predict direction of trailing EMA).
+- **Asset pooling comparison:** Pool **3 assets for dollar bars** (BTC, ETH, SOL; LTC
+  excluded per RC2) with `asset_id` categorical (~8,500+ samples on dollar bars, or
+  ~12,000+ including volume bars for all 4 assets) vs per-asset training. Compare in RC3.
+
+### 11H: Tests
+
+- Unit test: logistic regression on linearly separable data → near-perfect accuracy
+- Convergence test: GRU loss decreases over epochs
+- Calibration test: predicted probabilities match observed frequencies
+- Null test: model trained on shuffled labels → accuracy ≈ 50%
+- CPCV test: verify no temporal leakage (train/test indices don't overlap after purging)
+- Cross-asset purge test: verify ETH training data purged when BTC is in test window
+- Label overlap test: verify sequential bootstrapping weights are correct for fwd_logret_24
+
+**Dependencies:** Phase 10-pre (gating test determines scope), Phase 4 (features + targets),
+`lightgbm`, `pytorch`
+**Estimated scope:** ~14 files, ~1000 lines (including shared CPCV infrastructure + label overlap)
 
 ---
 
@@ -2075,6 +2438,19 @@ Verify DA → 50%.
 will perform well on, given current market features and **both classification + regression
 forecasts**. This is generalized meta-labeling — predicting expected strategy return
 (continuous), enabling both deploy/skip decisions AND position sizing.
+
+> **Updated after RC2 (2026-03-24):**
+> - **Regime-conditional activation is essential**, not optional. PE = 0.9977 on dollar bars
+>   means the system should default to NO-TRADE and activate only during detected regime
+>   transitions where PE temporarily drops. RC2 confirmed MI significance concentrates in
+>   the 2022-2023 window (bear market / recovery) — signal is regime-conditional.
+> - **Volatility-regime metadata** is now a first-class input to the recommender. RC2 makes
+>   clear this is load-bearing (GARCH persistence = 1.000, all fallback features are vol).
+> - **Cross-asset features** must include BTC-lagged returns for altcoins (Granger causality
+>   confirmed) and Kendall tau rank correlations (0.571, p < 0.0001).
+> - **Position sizing should scale with `max(0, DA - break_even_DA)`** — negative values mean
+>   the recommender outputs zero size. This directly encodes the RC2 finding that the
+>   feasibility gap (DA - break-even) is the binding constraint.
 
 > **Key insight:** The recommender IS the ML model. It is not a formula or heuristic.
 > It consumes BOTH forecasting tracks: (1) classifier's direction + confidence, (2) regressor's
@@ -2119,26 +2495,37 @@ ablation shows causation. Running the full pipeline minus one feature group (cla
 features, regressor features, regime features) with DM tests against the full model directly
 answers: "Does combining tracks add value?" (H3).
 
-### 12A: Training Data Construction
+### 12A: Training Data Construction (Updated for Audit A2, C5)
 
 - **`src/app/recommendation/application/label_builder.py`** — For each (asset, time_window):
   1. **Fixed-horizon strategy return labels** at decision point (Khandani et al., 2010).
      Net return over `[t, t+H]` including transaction costs. `label_horizon` configurable.
-  2. **Weekly windows** (not monthly) — 4 assets × 3 strategies × ~150 weeks ≈ 1800 labels.
+  2. **Weekly windows** (not monthly) — **3 assets (BTC, ETH, SOL) for dollar bars** ×
+     3 strategies × ~150 weeks ≈ **1350 labels**. If including volume bars (all 4 assets):
+     4 × 3 × 150 = 1800 labels. Use both to maximize label count.
   3. Walk-forward: only use past data for features, future window for labels.
 
 - **`src/app/recommendation/application/feature_builder.py`** — Features for the recommender:
   - **Market state features:** all features from Phase 4 (volatility, momentum, Hurst, etc.)
-  - **Classifier features (from Phase 9):** predicted direction, classifier confidence,
+  - **Classifier features (from Phase 11):** predicted direction, classifier confidence,
     classifier accuracy on recent N predictions
   - **Regressor features (from Phase 10):** predicted return magnitude, prediction uncertainty,
     quantile spread (Q95-Q05), conformal interval width
+  - **Vol forecast features (from Phase 10):** predicted forward RV, QLIKE residual,
+    vol forecast error trend (is the model getting worse?)
   - **Combined forecast features:** classifier agrees with regressor sign? |predicted return|
     × classifier confidence (conviction score)
   - **Regime features:** GARCH conditional volatility, volatility regime indicator, rolling
     permutation entropy
+  - **Rolling MI significance proxy (Audit C5):** rolling volatility compared to the
+    2022-2023 average (the window where MI was significant). When rolling vol exceeds the
+    2022-2023 mean, flag as "MI-significant regime." Alternatively: use HIGH volatility
+    regime label from Phase 5C as a direct proxy (RC2 showed MI significance concentrates
+    in the high-vol 2022-2023 window). This operationalizes the temporal instability finding.
   - **Cross-asset features:** relative strength vs universe mean, beta to BTC,
-    **rolling cross-asset correlation** (crypto correlations → 1.0 during crashes)
+    **rolling cross-asset correlation** (crypto correlations → 1.0 during crashes),
+    **BTC-lagged returns** for altcoin models *(RC2 Granger: BTC → {ETH, LTC, SOL} at lag 1)*,
+    Kendall tau MI rank correlations *(RC2: tau = 0.571)*
   - **Historical strategy features:** rolling strategy Sharpe on this asset, rolling win rate
 
 ### 12B: Recommender Domain
@@ -2204,15 +2591,149 @@ answers: "Does combining tracks add value?" (H3).
 - Sanity test: recommender trained on noise → no better than random baseline
 - Multi-layer leakage test: verify L1 predictions used as L2 features are genuinely OOS
 
-**Dependencies:** Phase 4 (features), Phase 7 (backtest), Phase 8 (strategies), Phase 9 (classifier), Phase 10 (regressor)
+**Dependencies:** Phase 4 (features), Phase 8 (backtest), Phase 9 (strategies), Phase 11 (classifier), Phase 10 (regressor)
 **Estimated scope:** ~12 files, ~1000 lines
 
 ---
 
-## Phase 13: Research Checkpoint 4 — Recommender Evaluation
+## Phase 13: Research Checkpoint 3 — Classification & Regression Evaluation
+
+**Goal:** Evaluate BOTH forecasting tracks. Compare classification vs regression approaches.
+Can the classifier beat a coin flip? Does regression add value on top of correct direction?
+Are the two complementary? Split into 3 focused notebooks.
+
+> **Updated after RC2 (2026-03-24):**
+> - Set the benchmark as **buy-and-hold (Sharpe = 0.576)**, not random walk. Any strategy
+>   must beat this passive baseline to justify its complexity.
+> - The Model Confidence Set (MCS) threshold should account for the fact that even the best
+>   single feature has negative economic margin (-5.42 pp below break-even DA).
+> - Use "feature DA > majority class DA (51.14%)" as the pass criterion, not "feature DA >
+>   break-even DA (57.23%)" — the latter is too stringent for single features.
+> - Phase ordering: RC3 now runs AFTER Phase 12 (Recommendation System), not before. This
+>   allows the recommender evaluation to be included in the model comparison.
+
+### Theoretical Foundation
+
+**Pre-Registration (Nosek et al., 2018; Chambers & Tzavella, 2022):** Pre-registration
+separates confirmatory from exploratory analysis. Writing decision criteria before opening
+notebooks converts researcher degrees of freedom into pre-committed mechanical rules. For
+a bachelor's thesis, this is unusually rigorous and will impress committee members.
+
+**Statistical Power (Cohen, 1988):** Power = P(reject H₀ | H₁ true). With N_test = 500
+bars (one walk-forward fold for dollar bars) and α = 0.05, the minimum detectable accuracy
+above 50% at 80% power is ~54.5%. If realistic DA is 52-53%, the test WILL fail to reject —
+but this is a power problem, not a signal problem. Computing and reporting MDE per cell
+prevents misinterpreting non-rejection as evidence of no effect (the classical Type II error).
+
+**Regime-Stratified Evaluation vs Giacomini-White (2006):** The GW conditional predictive
+ability test is elegant but requires choosing instrument variables, bandwidth, and has power
+issues at small N. A simpler approach with identical insight: run standard Diebold-Mariano
+tests separately on subsets (high-vol, low-vol, trending, ranging). This answers "is model A
+conditionally better?" without econometric machinery that is hard to debug. The theoretical
+cost: GW tests conditional superiority jointly; stratified DM tests it marginally per regime.
+For a bachelor's thesis with N < 5000, the marginal approach has higher power per regime.
+
+**Shuffled-Labels as Leakage Detector (Ojala & Garriga, 2010):** Training every model once
+on permuted targets and showing accuracy → 50% is the single most convincing anti-leakage
+proof. If ANY model exceeds 50% on shuffled labels, the pipeline has a bug. Cost: one extra
+training loop per model. Value: strongest defense against "is this just overfitting?"
+
+### 13A: Notebook `research/RC3_classification.ipynb`
+
+**Pre-register go/no-go decision tree** — mechanical criteria before seeing data.
+
+**Power analysis table** per (asset, bar_type) — MDE at 80% power. Know what effects are
+detectable before interpreting results.
+
+**Classification evaluation:**
+- Per-model, per-asset, per-horizon: accuracy, precision, recall, F1, AUC-ROC
+- Comparison table: all classifiers × all assets → which model wins?
+- **Accuracy > 50% is the minimum bar** — binomial test: p-value for accuracy > 0.5
+- Confidence-based abstention curves: DA at `{0.5, 0.55, 0.6, 0.65, 0.7}` with coverage
+- Calibration plots: predicted probability vs actual frequency per model
+- Pooled vs per-asset comparison (from Phase 11G)
+- **Walk-forward equity curve visualization** — WHERE models fail, not just aggregate metrics
+
+**Shuffled-labels sanity (Ojala & Garriga, 2010):** Every model trained on permuted targets.
+Verify DA → 50%.
+
+**Naive benchmark battery:** majority-class, persistence, momentum-sign.
+
+**Classification decision output:**
+- Best classifier(s) for direction prediction
+- Best horizon for direction prediction
+- Per-asset accuracy heatmap → which assets are predictable?
+- Is classification viable? (any model significantly > 50%?)
+
+### 13B: Notebook `research/RC3_regression.ipynb`
+
+**Standalone regression evaluation:**
+- Per-model: raw MAE, RMSE (for completeness only — NOT decision metrics)
+- **DA (Directional Accuracy)** of regressors: do they implicitly get direction right?
+- If regressor DA > classifier accuracy → regressor alone may be sufficient
+
+**Pipeline evaluation (classifier + regressor combined):**
+- Filter to samples where best classifier is correct → evaluate regressor DC-MAE, DC-RMSE
+- Scatter plots: predicted vs actual return, **only for correct-direction samples**
+- **Selection-bias characterization** — report correct-subset distribution vs full
+- **PDR:** when classifier says "up" AND regressor says "> +1%", how often is realized
+  return positive and > 0.5%?
+
+**Uncertainty evaluation:**
+- Calibration plots (reliability diagrams) per regressor
+- CRPS per model
+- Conformal interval coverage (overall + per regime)
+- Interval sharpness: narrower is better at same coverage
+
+**Shuffled-labels sanity** for regressors.
+
+**Naive benchmark battery:** random walk, EWMA, historical mean.
+
+### 13C: Notebook `research/RC3_combined_pipeline.ipynb`
+
+**Economic evaluation (combined pipeline):**
+- **Economic Sharpe:** classifier picks side, regressor sizes position → equity curve
+- Compare: classifier-only (equal size), regressor-only (sign determines side), combined
+- Profit factor: gross profit from correct trades / gross loss from incorrect
+- **Walk-forward equity curve** showing WHERE combined outperforms/underperforms
+
+**Statistical comparison:**
+- **Regime-stratified Diebold-Mariano** — DM test separately on high-vol, low-vol, trending,
+  ranging subsets. Same insight as Giacomini-White, more transparent at small N.
+- **Combined vs separate test:** Does (classifier + regressor) significantly beat
+  classifier-only? DM test on Economic Sharpe.
+
+**Data adequacy:**
+- Is any classifier's accuracy significantly > 50%? (binomial test)
+- Is any regressor's DC-MAE significantly lower than unconditional MAE? (permutation test)
+- Is Economic Sharpe of combined pipeline significantly > 0? (bootstrap CI)
+
+**Decision output:**
+- Select best classifier (or top-2) for the recommendation system
+- Select best regressor (or top-2) for the recommendation system
+- Confirm: does the combined pipeline outperform each alone?
+- Determine best forecast horizon
+- Assets where accuracy ≈ 50% → classification hopeless, flag for recommender
+
+**Estimated scope:** 3 notebooks (no artificial cell limits — be as thorough as needed)
+
+---
+
+## Phase 14: Research Checkpoint 4 — Recommender Evaluation
 
 **Goal:** Does the ML recommender actually add value? Does combining classification + regression
 outperform each alone? Final charts, statistics, and honest evaluation.
+
+> **Updated after RC2 (2026-03-24):**
+> - **Two-tier DSR framework** (Audit A1): Tier 1 = 60 pre-registered trials (4 assets x
+>   5 bar_types x 3 horizons, 0 post-hoc deviations). Tier 2 = exhaustive count (primary).
+>   See Quick Reference for full definition.
+> - **Monte Carlo validation on GBM is essential.** The near-random-walk PE values (0.9977
+>   on dollar bars) mean that any profitable strategy on real data MUST show zero or
+>   negative profit on synthetic random walks. If it doesn't, the strategy is fitting noise.
+> - **Add permutation entropy tracking** to the evaluation dashboard: show how PE varies
+>   over the backtest period and correlate with strategy PnL. This directly connects to
+>   the regime-conditional activation thesis.
 
 ### Theoretical Foundation
 
@@ -2229,15 +2750,17 @@ realistic costs are 10 bps, the recommender is dead regardless of statistical si
 Compute per asset (BTC/ETH may survive, LTC/SOL may not).
 
 **Pre-Registration of Honest Assessment (Chambers & Tzavella, 2022):** Pin thresholds before
-results: "Delta-Sharpe > 0.15, hit rate improvement > 3pp, ≥ 3/4 assets positive." Any
-deviation is documented as post-hoc.
+results: "Delta-Sharpe > 0.15, hit rate improvement > 3pp, ≥ 2/3 dollar-bar assets positive
+(or ≥ 3/4 if including volume bars)." Any deviation is documented as post-hoc.
 
-### 13A: Notebook `research/RC4_recommender_evaluation.ipynb`
+### 14A: Notebook `research/RC4_recommender_evaluation.ipynb`
 
 **Pre-register honest assessment criteria** in first notebook cell:
 - "Delta-Sharpe > 0.15 between ML recommender and best baseline"
 - "Hit rate improvement > 3 percentage points"
-- "≥ 3 out of 4 assets show positive contribution"
+- "≥ 2 out of 3 dollar-bar assets show positive contribution" *(Updated per Audit A2:
+  3 assets for dollar bars after LTCUSDT exclusion. "Majority of included assets" = 2/3.)*
+- If including volume bars: "≥ 3 out of 4 assets show positive contribution"
 - Any deviation from these criteria is documented as post-hoc.
 
 **Baseline ladder** — 5 baselines in one comparison table:
@@ -2295,7 +2818,7 @@ Shows WHERE the recommender adds/destroys value.
 
 ---
 
-## Phase 14: Statistical Proof & Final Report
+## Phase 15: Statistical Proof & Final Report
 
 **Goal:** Formal statistical tests aggregated into a reproducible report.
 Prove the system works on real data AND prove it doesn't work on random data.
@@ -2316,9 +2839,11 @@ and is the strongest test.
 **Deflated Sharpe Ratio (Bailey & López de Prado, 2014):** DSR corrects observed Sharpe for:
 (a) number of strategies tried (N_trials), (b) non-normality (skewness, kurtosis), (c) sample
 length. Formula: `P(SR* > 0 | SR_observed, N_trials, skew, kurt, T)`. N_trials must be
-honestly exhaustive — include ALL configurations explored across Phases 9-12, all
+honestly exhaustive — include ALL configurations explored across Phases 10-12, all
 hyperparameter searches, all RC decision points. Undercounting N is the exact p-hacking DSR
-exists to prevent. The trial count for this thesis will likely be 200-500+.
+exists to prevent. *(Updated per Audit A1)* This thesis uses a two-tier framework:
+Tier 1 = 60 pre-registered trials (sensitivity analysis), Tier 2 = exhaustive count including
+all post-hoc choices (primary result). See Quick Reference for full framework definition.
 
 **Minimum Backtest Length (Bailey & López de Prado, 2012 — MBL):** Given observed Sharpe,
 non-normality, and desired significance level, MBL computes the minimum test period needed for
@@ -2331,14 +2856,14 @@ once, with no iteration. Any model modification after seeing holdout results con
 snooping. The holdout contamination audit is a programmatic check that no 2024+ data touched
 any model decision — ~50 lines of code, highest ROI anti-leakage measure.
 
-### 14A-pre: Holdout Contamination Audit
+### 15A-pre: Holdout Contamination Audit
 
 - **`src/app/evaluation/application/holdout_audit.py`** — Automated programmatic check (~50
   lines) that no holdout-period data (2024+) touched any model training or hyperparameter
   decision. Scans MLflow logs, training configs, and data access timestamps. Highest ROI
   anti-leakage measure. Run before any holdout evaluation.
 
-### 14A: Monte Carlo Simulation on Synthetic Data
+### 15A: Monte Carlo Simulation on Synthetic Data
 
 > **Key sanity check:** If our strategy/recommender "works" on pure random data,
 > it's overfitting. A valid system should find NO signal in noise.
@@ -2364,16 +2889,16 @@ any model decision — ~50 lines of code, highest ROI anti-leakage measure.
   5. **Expected:** strategy Sharpe on GBM paths should be ~0
   6. **If strategy is profitable on random data → overfitting alarm**
 
-### 14B: Permutation Tests on Real Data
+### 15B: Permutation Tests on Real Data
 
 - **`src/app/evaluation/application/permutation_tests.py`** —
   - **Test 1 — Shuffled returns:** Freeze recommendations, shuffle returns 10000× → null
   - **Test 2 — Shuffled selections:** Keep returns, random K selection 10000× → null
   - **Test 3 — Filtered vs unfiltered:** Permutation test on Sharpe difference
   - **Test 4 — Combined vs single-track:** Permutation on Sharpe(combined) - Sharpe(single)
-  - **Test 5 — Strategy on random data (from 14A):** Compare real Sharpe against Monte Carlo null
+  - **Test 5 — Strategy on random data (from 15A):** Compare real Sharpe against Monte Carlo null
 
-### 14C: Bootstrap Confidence Intervals
+### 15C: Bootstrap Confidence Intervals
 
 - **`src/app/evaluation/application/bootstrap.py`** —
   - Block bootstrap (preserving autocorrelation via stationary bootstrap)
@@ -2381,7 +2906,7 @@ any model decision — ~50 lines of code, highest ROI anti-leakage measure.
   - If Sharpe CI includes 0 → cannot claim profitability
   - Bootstrap on each test period separately + pooled
 
-### 14D: Walk-Forward Validation & Holdout
+### 15D: Walk-Forward Validation & Holdout
 
 - **`src/app/evaluation/application/walk_forward_proof.py`** —
   - Entire pipeline on multiple non-overlapping test periods (2024 H1, 2024 H2, 2025 H1)
@@ -2392,18 +2917,38 @@ any model decision — ~50 lines of code, highest ROI anti-leakage measure.
   - **Honest power statement:** 3 walk-forward periods = no formal statistical power.
     Frame descriptively, not as hypothesis tests.
 
-### 14E: Model Comparison & DSR
+### 15E: Model Comparison & DSR (Updated per Audit A1 — Two-Tier Framework)
 
 - **`src/app/evaluation/application/model_comparison.py`** —
   - Diebold-Mariano test for each model pair
-  - **DSR with honestly exhaustive N_trials** (Bailey & López de Prado, 2014) — count ALL
-    configs including RC decision points, hyperparameter searches, model variants. Likely
-    200-500+ trials.
+  - **DSR computed at BOTH trial counts** (Bailey & López de Prado, 2014):
+
+    **Tier 1 (pre-registered, sensitivity analysis):** N_trials = 60 (4 assets × 5 bar_types
+    × 3 horizons, 0 post-hoc deviations as of RC2). This is the best-case trial count
+    reflecting the pre-registration commitment.
+
+    **Tier 2 (exhaustive, primary result):** N_trials = 60 + count of ALL post-hoc choices:
+    each hyperparameter configuration tried (Ridge alpha values, LightGBM n_estimators, etc.),
+    each model architecture variant (Ridge vs LightGBM vs GRU vs HAR-RV etc.), each RC
+    decision point where the researcher chose between alternatives. **This is the honest,
+    conservative number.** The code must maintain a running trial counter incremented at each
+    choice point across Phases 10–12. Store in a `TrialCounter` Pydantic model.
+
+    Report BOTH DSR results in a table:
+    | Trial Count | N_trials | Required SR (approx) | DSR p-value |
+    |-------------|----------|---------------------|-------------|
+    | Tier 1 (pre-registered) | 60 | ~2.0 | ... |
+    | Tier 2 (exhaustive) | ... | ~2.5-3.0 | ... |
+
+    The honest approach: Tier 2 is the headline result. Tier 1 shows sensitivity to trial
+    count assumptions. If Tier 2 fails but Tier 1 passes, report: "The strategy is significant
+    under pre-registered trial count but NOT under exhaustive trial count."
+
   - **Minimum Backtest Length** — compute MBL given observed metrics. If MBL > holdout →
     "indicative but inconclusive."
   - Summary table: model × metric × significance
 
-### 14F: Crypto Event Studies
+### 15F: Crypto Event Studies
 
 - **`src/app/evaluation/application/event_studies.py`** —
   - **What did the system do during:** FTX collapse, Luna/UST crash, COVID March 2020,
@@ -2412,16 +2957,50 @@ any model decision — ~50 lines of code, highest ROI anti-leakage measure.
   - Not statistical tests — narrative evidence that builds credibility.
   - "During the FTX collapse, the recommender [deployed/abstained]. The result was [X]."
 
-### 14G: Tests
+### 15G: Contribution Synthesis (Audit E1 — R5 Confrontation Thesis Paragraph)
+
+> This section converts each major RC2 finding into a thesis contribution. Negative results
+> ARE contributions when framed correctly. This is the "so what?" section for the examiner.
+
+**Deliverables:**
+
+1. **R5 Confrontation (novel empirical finding):** "We confirm R5's finding that dollar-bar
+   returns approach Brownian noise (PE = 0.9977, d=5). However, we demonstrate that
+   information-driven sampling (imbalance bars) extracts structure below the Brownian noise
+   threshold (PE = 0.9740 for BTCUSDT/vol_imbalance). This is a novel empirical finding:
+   the sampling method, not the asset, determines the entropy bound."
+
+2. **Volatility dominance:** "Of 23 engineered features, only volatility and liquidity
+   features carry statistically detectable information about future returns. Returns,
+   momentum, and statistical features are indistinguishable from noise. This provides
+   empirical support for the semi-strong form of the EMH in crypto spot markets."
+
+3. **Signal regime-conditionality:** "Mutual information significance is concentrated
+   in the 2022-2023 bear market / recovery period (8/23 features significant) with 0/23
+   in all other windows. This suggests that predictive signal in crypto is transient and
+   regime-conditional, not persistent — the recommendation system's value lies in detecting
+   WHEN to trade, not WHAT to trade."
+
+4. **Information-sample-size tradeoff (imbalance bar paradox):** "Bar types that extract
+   the most structure (lowest PE, best DA excess) have the fewest samples. This tradeoff
+   is fundamental: information-driven sampling concentrates on rare events, reducing sample
+   size. Future work should explore adaptive threshold calibration to optimize this tradeoff."
+
+5. **Pre-registration as quality standard:** "0 post-hoc deviations across 60 pre-registered
+   trials demonstrates that our results are confirmatory, not exploratory. The frozen Pydantic
+   configuration model prevents inadvertent deviation."
+
+### 15H: Tests
 
 - Monte Carlo: strategy on 1000 GBM paths → Sharpe distribution centered at ~0
 - Monte Carlo: strategy on paths with injected autocorrelation=0.10 → should detect signal
 - Permutation test on synthetic "known profitable" recommender → should reject null
 - Permutation test on random recommender → should NOT reject null
 - Holdout audit: verify no 2024+ data in training configs
+- **Trial counter test:** verify TrialCounter correctly increments across phases
 
 **Dependencies:** All previous phases
-**Estimated scope:** ~14 files, ~1200 lines
+**Estimated scope:** ~16 files, ~1400 lines (increased for trial counter + contribution synthesis)
 
 ---
 
@@ -2429,13 +3008,13 @@ any model decision — ~50 lines of code, highest ROI anti-leakage measure.
 
 # BLOCK III: Polishing & Production
 
-> Everything below is post-thesis-validation. Only proceed after Phases 1–14 are complete
+> Everything below is post-thesis-validation. Only proceed after Phases 1–15 are complete
 > and the research results are satisfactory. This block turns the research prototype into
 > a production-grade paper trading system.
 
 ---
 
-## Phase 15: Pipeline Runner & Integration
+## Phase 16: Pipeline Runner & Integration
 
 **Goal:** Single pipeline runner class that orchestrates the full pipeline from ingestion to
 recommendation, with simple retry, resume, and logging. No production infrastructure
@@ -2453,7 +3032,7 @@ analysis — which is what the committee evaluates.
 table IS the checkpoint. On restart, query the max processed timestamp and resume. This is
 the append-only, idempotent pattern that eliminates the need for separate state management.
 
-### 15A: Pipeline Runner
+### 16A: Pipeline Runner
 
 - **`src/app/system/pipeline/runner.py`** — `PipelineRunner` class (~200 LOC):
   - Sequential steps: ingest → bars → features → classify → regress → recommend → backtest
@@ -2469,24 +3048,24 @@ the append-only, idempotent pattern that eliminates the need for separate state 
 - **`src/app/system/pipeline/config.py`** — `PaperTradingConfig` Pydantic settings:
   - Cycle interval, assets, bar types, model paths, commission settings
 
-### 15B: Canary Run
+### 16B: Canary Run
 
 - Run full pipeline once on historical data, verify output matches backtest results.
 - This is the integration test: "does the pipeline produce the same numbers as the
   research notebooks?"
 
-### 15C: Tests
+### 16C: Tests
 
 - Integration test: pipeline runs end-to-end on small dataset
 - Resume test: kill mid-run → restart → verify resumes from high-water mark
 - Config validation test: invalid config raises immediately
 
-**Dependencies:** Phases 1-14 (working pipeline)
+**Dependencies:** Phases 1-15 (working pipeline)
 **Estimated scope:** ~5 files, ~300 lines
 
 ---
 
-## Phase 16: Live Paper Trading Engine
+## Phase 17: Live Paper Trading Engine
 
 **Goal:** Real-time paper trading system that connects to Binance live data,
 runs the full pipeline, and executes trades with simulated money on real market data.
@@ -2503,7 +3082,7 @@ the live pipeline, diff against batch output — is the standard proof of correc
 processing creates an immutable audit trail. Without it, a bug in live is unreproducible.
 With it, any live session can be replayed deterministically for debugging.
 
-### 16A: Real-Time Data Feed
+### 17A: Real-Time Data Feed
 
 - **`src/app/live/infrastructure/binance_websocket.py`** — WebSocket connection to Binance
   for real-time kline/candle data. Auto-reconnect on disconnect (handle Binance 24h forced
@@ -2511,14 +3090,14 @@ With it, any live session can be replayed deterministically for debugging.
 - **`src/app/live/infrastructure/flight_recorder.py`** — Log all raw WebSocket messages to
   DuckDB/parquet before processing. Immutable audit trail.
 
-### 16B: Real-Time Bar Construction & Features
+### 17B: Real-Time Bar Construction & Features
 
 - **`src/app/live/application/bar_builder.py`** — `LiveBarBuilder`: receives raw candles from
   data feed, constructs bars in real-time. Emits completed bars.
 - **`src/app/live/application/feature_engine.py`** — `LiveFeatureEngine`: maintains rolling
   windows, computes features incrementally on each new bar.
 
-### 16C: Paper Trading Execution
+### 17C: Paper Trading Execution
 
 - **`src/app/live/domain/value_objects.py`** —
   - `PaperAccount` — starting_balance, current_balance, positions, trade_history, equity_history
@@ -2535,22 +3114,22 @@ With it, any live session can be replayed deterministically for debugging.
   3. Log everything, persist state to DuckDB (crash-recoverable)
   4. **Heartbeat + drift monitor** — every 60s log status
 
-### 16D: Model Loading & Validation
+### 17D: Model Loading & Validation
 
 - **`src/app/live/application/model_loader.py`** — Load trained models from MLflow.
   Feature contract validation: verify live features match training schema (~20 lines).
 
-### 16E: Session State
+### 17E: Session State
 
 - **`paper_trading_sessions` DuckDB table** — session ID, start time, end time, equity curve,
   trades, model versions used. One table, no separate state management.
 
-### 16F: Reconciliation Test (Shadow Mode)
+### 17F: Reconciliation Test (Shadow Mode)
 
 - Replay 1 week of historical data through live pipeline, diff feature values and predictions
   against batch-computed results. Maximum acceptable divergence: 1e-6 relative error.
 
-### 16G: Tests
+### 17G: Tests
 
 - Integration test: feed historical data through LiveTradingLoop → verify trades match
   backtest results
@@ -2558,12 +3137,12 @@ With it, any live session can be replayed deterministically for debugging.
 - Crash recovery test: kill loop → restart → verify resumes from DuckDB state
 - Reconciliation test: live vs batch feature parity
 
-**Dependencies:** Phase 15 (pipeline runner), all model phases
+**Dependencies:** Phase 16 (pipeline runner), all model phases
 **Estimated scope:** ~12 files, ~1000 lines
 
 ---
 
-## Phase 17: Dashboard Frontend
+## Phase 18: Dashboard Frontend
 
 **Goal:** Read-only Streamlit dashboard for monitoring paper trading and thesis defense demo.
 Five panels with clear information hierarchy.
@@ -2579,7 +3158,7 @@ with 0 panels. Five panels with clear hierarchy: (1) summary statistics card, (2
 with benchmarks and regime overlay, (3) recommendations with explanations, (4) trade log,
 (5) model health.
 
-### 17A: Streamlit Dashboard (read-only, 5 panels)
+### 18A: Streamlit Dashboard (read-only, 5 panels)
 
 - **`src/app/dashboard/app.py`** — Single Streamlit application:
 
@@ -2608,31 +3187,37 @@ with benchmarks and regime overlay, (3) recommendations with explanations, (4) t
   - Data staleness indicator (time since last bar)
   - Feature drift monitor (simple distribution shift detection)
 
-### 17B: Demo Mode & Export
+### 18B: Demo Mode & Export
 
 - **`--demo` flag** — loads pre-baked DuckDB snapshot with curated paper trading results.
   Eliminates live dependency for thesis defense.
 - **Exportable thesis figures** (PNG/SVG, publication-quality) — every chart has an export
   button for inclusion in the thesis document.
 
-### 17C: Configuration
+### 18C: Configuration
 
 - Dashboard reads from the same DuckDB database as the trading engine
 - No separate data store — single source of truth
 - Configurable refresh interval (default: 30 seconds)
 
-### 17D: Tests
+### 18D: Tests
 
 - Dashboard renders without errors on empty data (no trades yet)
 - Demo mode loads and displays correctly
 - Export produces valid PNG/SVG files
 
-**Dependencies:** Phase 16 (live trading engine), `streamlit`
+**Dependencies:** Phase 17 (live trading engine), `streamlit`
 **Estimated scope:** ~4 files, ~500 lines
 
 ---
 
 ## Implementation Order & Dependencies
+
+> **Updated after RC2 (2026-03-24):** Phase ordering reordered based on RC2 findings.
+> Key change: Phase 10 (Regression) moves before Phase 11 (Classification) because
+> volatility features dominate and regression on vol targets is the strongest viable
+> signal. Phase 13 (RC3) moves after Phase 12 (Recommendation) so the model comparison
+> includes the recommender.
 
 ```
 ═══════════════════════════════════════════════════════════════════════════
@@ -2647,90 +3232,142 @@ Phase 1  (Ingestion) ✅ ──────────────────�
     │               Decisions: 4 assets, 5 bar types (dollar, volume,
     │               volume_imbalance, dollar_imbalance, time_1h baseline)
     │
-    ├── Phase 4  (Features + Targets: classification & regression) ✅
+    ├── Phase 4  (Features + Targets) ✅
     │       │
-    │       ├── Phase 5  (Profiling) ◄── IN PROGRESS
+    │       ├── Phase 5  (Profiling) ✅ LARGELY COMPLETE (via RC2)
+    │       │       │    Remaining: Phase 7 items (7 sub-tasks)
     │       │       │
-    │       │       └── Phase 6  [RC2: Features & Data Adequacy] ◄── RESEARCH STOP
+    │       │       └── Phase 6  [RC2: Features & Data Adequacy] ✅ COMPLETED
+    │       │               Decision: GO with constraints. 5/23 features
+    │       │               kept (all vol/volume). Signal weak but real.
+    │       │               3 assets for dollar bars (LTC excluded).
     │       │
-    │       └── Phase 7  (Backtest Engine)
+    │       └── Phase 7 (Profiling Closure & Data Adequacy Finalization) ◄── CURRENT
+    │               │    Cost sensitivity, atr_14/rsi_14 investigation,
+    │               │    stationarity policy, NMI fix, LTC vol-bar
+    │               │    profiling, conditional break-even DA, SOL Tier B
     │               │
-    │               └── Phase 8  (Base Strategies)
+    │               └── Phase 8  (Backtest Engine) ◄── NEXT
+    │                       │    + cost sensitivity, regime-conditional
+    │                       │    sizing, buy-hold Sharpe=0.576 hurdle
+    │                       │
+    │                       └── Phase 9  (Base Strategies)
+    │                               + vol-targeting, NO-TRADE strategy
 
 ═══════════════════════════════════════════════════════════════════════════
  BLOCK II: Models, Recommendation & Proof
+ (Phase order: 10-pre gate → 10 regression → 11 classification)
 ═══════════════════════════════════════════════════════════════════════════
 
-    ├── Phase 9  (Direction Classification) ─────┐
-    │                                             │
-    ├── Phase 10 (Return Regression) ─────────────┤
-    │                                             │
-    │       └── Phase 11 [RC3: Classification     │
-    │            & Regression Evaluation]          │
-    │            ◄── RESEARCH STOP                │
-    │                                             │
-    ├── Phase 12 (ML Recommendation System) ◄─────┘
-    │       │     (consumes BOTH tracks)
-    │       │
-    │       └── Phase 13 [RC4: Recommender Evaluation] ◄── RESEARCH STOP
+    ├── Phase 10-pre (GATING TEST) ◄── CRITICAL GATE
+    │       23-feature Ridge/LightGBM DA on BTCUSDT/dollar.
+    │       Decision: FULL GO / CONDITIONAL GO / PIVOT
+    │       + Vol forecasting feasibility check
     │
-    └── Phase 14 (Statistical Proof + Monte Carlo)
+    ├── Phase 10 (Regression) ◄── FIRST   ──┐  Strongest signal
+    │       Vol forecasting primary            │  (HAR-RV, GARCH,
+    │       (forward_rv_h target, QLIKE,       │  LightGBM vol)
+    │        Mincer-Zarnowitz R²)              │  + return magnitude
+    │       STANDALONE metrics only             │  (exploratory)
+    │                                          │
+    ├── Phase 11  (Classification) ◄── SECOND  │  Scope depends on
+    │       DA > 51.14% majority class         │  10-pre gate result
+    │       + BTC-lagged features for alts     │
+    │       + label overlap for fwd_logret_24  │
+    │                                          │
+    ├── Phase 12 (Recommendation System) ◄────┘
+    │       │     Consumes BOTH tracks
+    │       │     Regime-conditional activation
+    │       │     Rolling MI significance proxy
+    │       │     3 assets dollar / 4 volume
+    │       │     ~1350-1800 labels
+    │       │
+    │       └── Phase 13 [RC3: Model Comparison] ◄── RESEARCH STOP
+    │               PIPELINE metrics (DC-MAE, DC-RMSE,
+    │               Economic Sharpe) computed HERE
+    │               (after both Phase 11 and 10 done)
+    │
+    ├── Phase 14 [RC4: Recommender Evaluation] ◄── RESEARCH STOP
+    │       >= 2 out of 3 dollar-bar assets positive.
+    │       PE tracking in evaluation dashboard.
+    │
+    └── Phase 15 (Statistical Proof + Monte Carlo)
+            Two-tier DSR (60 pre-registered + exhaustive).
+            Contribution synthesis (R5, vol dominance,
+            regime-conditionality, imbalance paradox).
 
 ═══════════════════════════════════════════════════════════════════════════
  BLOCK III: Polishing & Production (post-validation)
 ═══════════════════════════════════════════════════════════════════════════
 
-    Phase 15 (Pipeline Runner) ──── sequential steps, retry, resume
+    Phase 16 (Pipeline Runner) ──── sequential steps, retry, resume
     │                                from high-water mark, ~200 LOC
     │
-    Phase 16 (Live Paper Trading) ── WebSocket feed, real-time bars,
+    Phase 17 (Live Paper Trading) ── WebSocket feed, real-time bars,
     │                                paper broker, flight recorder
     │
-    Phase 17 (Dashboard Frontend) ── read-only Streamlit, 5 panels,
+    Phase 18 (Dashboard Frontend) ── read-only Streamlit, 5 panels,
                                      --demo mode, exportable figures
 
     RC = Research Checkpoint (notebook-driven, collaborative review)
 ```
 
-**Current status (2026-03-19):** Phases 1–4 complete. Phase 5 in progress.
+**Current status (2026-03-25):** Phases 1–4 complete. Phase 5 largely complete (via RC2).
+Phase 6 (RC2) complete — GO with constraints. **Phase 7 closure items (7.1 through
+7.7) are the current work.** Phase 8 starts after Phase 7 completes.
+
+**Phase reordering rationale (from RC2_plan_updates.md + Audit D1 clarification):**
+Moving regression (Phase 10) before classification (Phase 11) leverages the strongest signal
+first (volatility features). Phase 10 produces STANDALONE metrics only (raw MAE, QLIKE, R²).
+PIPELINE metrics (DC-MAE, DC-RMSE, Economic Sharpe) require Phase 11 classifier output and are
+computed in Phase 13 (RC3). Phase 10-pre gating test runs BEFORE both to determine whether the
+directional arm is primary, secondary, or exploratory.
 
 **Parallel work possible:**
-- Phases 5 + 7 can proceed in parallel after Phase 4
-- **Phases 9 + 10 can proceed in parallel** (classification and regression are independent tracks)
-- Phase 11 (RC3) evaluates both tracks together, compares and combines
-- Phase 12 needs Phases 7, 8, 9, 10 all done
-- **Block III only starts after Phase 14** (all research validated first)
+- Phase 7 items can run in parallel (all self-contained)
+- Phase 8 (Backtest Engine) starts after Phase 7
+- Phase 10-pre (gating test) can start as soon as CPCV infrastructure (Phase 11A) is built
+- **Phases 10 + 11 can proceed in parallel** after 10-pre (independent tracks)
+- Phase 12 needs Phases 8, 9, 10, 11 all done
+- Phase 13 (RC3) runs after Phase 12 (recommender + pipeline metrics)
+- **Block III only starts after Phase 15** (all research validated first)
 
-**Critical path:** Phase 5 → 6 → 9/10 → 11 → 12 → 13 → 14
+**Critical path:** 7 → 8 → 9 → 10-pre → 10 → 11 → 12 → 13 → 14 → 15
 
-**Estimated remaining:** ~5500 production LOC + ~5500 test LOC + ~950 notebook cells
+**Estimated remaining:** ~6500 production LOC + ~6500 test LOC + ~1000 notebook cells
+(increased from prior estimate due to vol forecasting models, gating test, label overlap,
+trial counter, contribution synthesis)
 
 ---
 
 ## Per-Phase Deliverables
+
+> **Updated after RC2 (2026-03-25).** Phase ordering reflects RC2-driven reorder: 10 before 11, 13 after 12.
 
 | Phase | Type | Deliverable | Status |
 |-------|------|------------|--------|
 | | | **BLOCK I: Data & Infrastructure** | |
 | 1 | Build | DuckDB filled with multi-asset OHLCV data | ✅ Done |
 | 2 | Build | Alternative bar types computed and stored | ✅ Done |
-| **3** | **Research** | **RC1 notebook: data quality charts, bar comparison, coverage** | **✅ Done** |
-| 4 | Build | Feature matrix + both targets (direction + return) | ✅ Done |
-| 5 | Build | Statistical profile per asset | In progress |
-| **6** | **Research** | **RC2 notebook: VIF, feature interactions, regime MI, economic significance, go/no-go** | **Yes: charts, go/no-go decision** |
-| 7 | Build | Backtest engine (~500 LOC, fill-on-next-open, Lo Sharpe) | Yes: equity curves, PnL |
-| 8 | Build | 3 diverse strategies (momentum, Donchian, mean reversion) | Yes: performance table |
-| | | **BLOCK II: Models, Recommendation & Proof** | |
-| 9 | Build | Direction classifiers (logistic, RF, LightGBM + GRU neg. result) | Yes: accuracy, abstention curves |
-| 10 | Build | Return regressors (Ridge, LightGBM quantile, GRU+MCDropout, ARIMA) | Yes: DC-MAE, CRPS, uncertainty |
-| **11** | **Research** | **RC3: 3 notebooks (clf, reg, combined), pre-registered, power analysis** | **Yes: dual-track comparison** |
-| 12 | Build | ML recommendation system (generalized meta-labeling, position sizing) | Yes: SHAP, ablation, conformal |
-| **13** | **Research** | **RC4 notebook: baseline ladder, break-even, value decomposition** | **Yes: final results, p-values** |
-| 14 | Build | Statistical proof (GBM + GARCH null, DSR, holdout audit, event studies) | Yes: p-values, null distributions |
+| **3** | **Research** | **RC1 notebook: data quality, bar comparison, coverage. 4 assets, 5 bar types selected.** | **✅ Done** |
+| 4 | Build | Feature matrix + both targets (direction + return). 23 features, 3 horizons. | ✅ Done |
+| 5 | Build | Statistical profile per asset. Stationarity, GARCH, PE, VR, Granger. | ✅ Largely done (via RC2). |
+| **6** | **Research** | **RC2 notebook: GO with constraints. 5/23 features kept (all vol/volume). 3 dollar-bar assets. PE=0.9977. 0 deviations.** | **✅ Done** |
+| **7** | Build | **Profiling closure: cost sensitivity {10-30 bps}, atr_14/rsi_14 investigation, stationarity policy, NMI fix, LTC vol-bar profiling, conditional break-even DA, SOL Tier B protocol** | **◄ CURRENT** |
+| 8 | Build | Backtest engine (~500 LOC, fill-on-next-open, Lo Sharpe) + cost sensitivity + regime sizing | Next |
+| 9 | Build | 5 strategies (momentum, Donchian, mean reversion + **vol-targeting + NO-TRADE**) | Pending |
+| | | **BLOCK II: Models, Recommendation & Proof** *(reordered after RC2 + audit)* | |
+| **10-pre** | Research | **Gating test: 23-feature Ridge/LightGBM DA on BTCUSDT/dollar. FULL GO / CONDITIONAL GO / PIVOT.** | Pending |
+| **10** | Build | **Return + vol regressors — HAR-RV + GARCH + LightGBM vol; QLIKE, Mincer-Zarnowitz R²; standalone metrics only** | Pending |
+| **11** | Build | Direction classifiers (logistic, RF, LightGBM + GRU neg. result). DA > 51.14% goal. BTC-lagged feats. Label overlap handling. | Pending |
+| 12 | Build | ML recommendation system (regime-conditional, rolling MI proxy, 3 dollar-bar / 4 volume-bar assets, ~1350-1800 labels) | Pending |
+| **13** | **Research** | **RC3: 3 notebooks (clf, reg, combined). Pipeline metrics (DC-MAE/RMSE, Economic Sharpe) computed here. Buy-hold Sharpe=0.576 benchmark.** | Pending |
+| **14** | **Research** | **RC4 notebook: baseline ladder, break-even, PE tracking, >= 2/3 dollar-bar assets positive** | Pending |
+| 15 | Build | Statistical proof: two-tier DSR (60 pre-reg + exhaustive), Monte Carlo, contribution synthesis (R5, vol dominance, regime-conditionality, imbalance paradox) | Pending |
 | | | **BLOCK III: Polishing & Production** | |
-| 15 | Build | Pipeline runner (~300 LOC, retry, resume from high-water mark) | Yes: canary run |
-| 16 | Build | Live paper trading (flight recorder, reconciliation test) | Yes: running system, live trades |
-| 17 | Build | Read-only Streamlit dashboard (5 panels, --demo mode) | Yes: thesis defense demo |
+| 16 | Build | Pipeline runner (~300 LOC, retry, resume from high-water mark) | Pending |
+| 17 | Build | Live paper trading (flight recorder, reconciliation test) | Pending |
+| 18 | Build | Read-only Streamlit dashboard (5 panels, --demo mode) | Pending |
 
 ---
 
@@ -2755,3 +3392,85 @@ Phase 1  (Ingestion) ✅ ──────────────────�
 16. **Python 3.14 type hints** — Modern syntax (`list[X]`, `X | None`, `type` aliases, `Self`, `Never`). Pyright strict mode with zero errors. Enforced on every commit.
 17. **Pre-commit quality gates** — Ruff formatter → Ruff linter → Pyright strict → isort. All from `pyproject.toml`. Failed hook = rejected commit.
 18. **Alembic for all schema changes** — Every DuckDB table/column/index change goes through a versioned, reversible Alembic migration. No raw DDL outside migrations.
+
+---
+
+## RC2 Data Decisions (2026-03-24)
+
+> These decisions are binding for all downstream phases. Any change constitutes a post-hoc
+> deviation and must increment the DSR trial count.
+
+### Bar Type Tiers
+
+| Bar Type | Priority | Tier | N (BTCUSDT) | PE (d=5) | Break-even DA | Justification |
+|----------|----------|------|-------------|----------|---------------|---------------|
+| **dollar** | Primary | A (>= 2,000) | 5,286 | 0.9977 | 57.23% | Best balance of N, stationarity, no serial corr |
+| **volume** | Secondary | A | 3,263 | 0.9968 | 55.52% | Large N for all assets, good distributional properties |
+| **volume_imbalance** | Exploratory | B (500-2,000) | 529 | 0.9740 | 52.11% | Lowest PE, best DA excess (+4.47 pp), but small N (0/8 viable) |
+| **dollar_imbalance** | Exploratory | B/C | 568 | 0.9796 | 52.05% | Low PE, small N |
+| **time_1h** | Baseline only | A | 54,277 | 0.9992 | 62-75% | Highest break-even DA, strongest serial corr. Comparison only. |
+
+**Asset-bar exclusions:**
+- LTCUSDT/dollar: **EXCLUDED** (199 bars after warmup — threshold calibration issue)
+- LTCUSDT/dollar_imbalance: EXCLUDED (14 bars)
+- SOLUSDT/dollar_imbalance: EXCLUDED (153 bars)
+- LTCUSDT remains viable on volume bars (N=26,986) and time_1h bars
+
+### Feature Set Decisions
+
+**Fallback features (kept via F2 — 0/23 passed all 3 gates):**
+`rv_12`, `rv_24`, `rv_48`, `bbwidth_20_2.0`, `amihud_24`
+— All from the volatility and volume groups. No returns, momentum, or statistical features passed.
+
+**Robustly informative (>= 2/3 horizons, Rule F4):**
+`amihud_24`, `bbwidth_20_2.0`, `park_vol_24`, `rv_24`, `rv_48`
+
+**Horizon-specific additions:**
+- fwd_logret_1: rv_12
+- fwd_logret_4: gk_vol_24, logret_12, roc_12
+- fwd_logret_24: (same as robust set)
+
+**Modeling approach:** Use the full 23-feature set for model training with regularization
+(Ridge alpha selected via CPCV). The fallback-5 defines the minimum feature set; the full-23
+allows the model to discover weak but combinatorially useful interactions. Individual feature
+weakness does not preclude ensemble usefulness.
+
+### Asset Universe (Updated per Audit A2)
+
+> **Dollar bars: 3 assets** (BTC, ETH, SOL). LTC excluded (199 bars).
+> **Volume bars: 4 assets** (BTC, ETH, SOL, LTC). All have Tier A volume bars.
+> All forward references to "pooled sample size" must use these counts.
+
+| Asset | Dollar Bars | Volume Bars | Dollar Bar Status | Volume Bar Status |
+|-------|-------------|-------------|-------------------|-------------------|
+| BTCUSDT | N_eff = 5,286 (Tier A) | N = 3,263 (Tier A) | **CONFIRMED** | **CONFIRMED** |
+| ETHUSDT | N_eff = 2,454 (Tier A) | N = 24,037 (Tier A) | **CONFIRMED** | **CONFIRMED** |
+| SOLUSDT | N_eff = 808 (Tier B) | N = 47,177 (Tier A) | **MARGINAL** — Tier B protocol (7.7) | **CONFIRMED** |
+| LTCUSDT | 199 bars (**EXCLUDED**) | N = 26,986 (Tier A) | **EXCLUDED** | **CONFIRMED** |
+
+**Pooled sample sizes (for Phase 11G, 12A references):**
+- Dollar bars pooled: ~8,548 (BTC 5,286 + ETH 2,454 + SOL 808). After warmup: ~7,500.
+- Volume bars pooled (4 assets): ~101,463. After warmup: ~95,000+.
+- Recommendation system labels (dollar): 3 assets × 3 strategies × 150 weeks = **1,350**
+- Recommendation system labels (dollar + volume): up to 4 assets × 3 strategies × 150 weeks = **1,800**
+
+---
+
+## RC2 Risk Register (Updated 2026-03-25 per Audit)
+
+| # | Risk | Prob | Impact | Mitigation | Owner Phase | Status |
+|---|------|------|--------|------------|-------------|--------|
+| R1 | Multi-feature DA below break-even on dollar bars | HIGH | HIGH | Phase 10-pre gating test; pivot to vol forecasting + risk management; conditional break-even on traded bars | 10-pre | Open |
+| R2 | Overfitting to 2022-2023 MI spike | MEDIUM | HIGH | CPCV with embargo; regime-conditional evaluation; rolling MI significance proxy in Phase 12 | 11, 12, 13 | Open |
+| R3 | Recommendation system insufficient training data | MEDIUM | MEDIUM | ~1350 labels (3 assets x 3 strategies x 150 weeks); pool across volume bars (→1800); simplify feature set; stronger regularization | 12 | Open |
+| R4 | SOLUSDT results unreliable (Tier B) | MEDIUM | LOW | N_eff = 808; Tier B protocol (7.7); wider CIs; robustness check not primary evidence | 10-15 | Open |
+| R5 | LTCUSDT exclusion weakens universality claim | LOW | MEDIUM | Show LTC works on volume bars; threshold recalibration as future work | 7, thesis | Accepted |
+| R6 | GRU negative-result experiment uninformative | LOW | LOW | N = 5,286 well below 10K DL threshold; Grinsztajn et al. 2022 prior; framed as intentional | 11 | Accepted |
+| R7 | Non-stationary features contaminate models | LOW | MEDIUM | Stationarity transformation policy (7.3); verify after transformation; document residuals | 7, 11 | Open |
+| R8 | Holdout period (2024+) non-representative regime | LOW | HIGH | Post-halving bull unlike 2022-2023 MI window; regime characterization; MBL computation; honest power statement | 15 | Open |
+| R9 | Strategy profitable on GBM synthetic paths (overfitting) | LOW | CRITICAL | Three-tier MC validation (GBM, GARCH-boot, Politis-Romano); automated alarm | 15 | Open |
+| R10 | Trial count understated, inflating DSR | MEDIUM | HIGH | Two-tier framework (60 pre-reg + exhaustive); TrialCounter across phases; report both | 15 | Open |
+| R11 | Imbalance bar signal vanishes with threshold recalibration | MEDIUM | LOW | Treat as exploratory; do not base primary conclusions on imbalance bars | 5, thesis | Accepted |
+| R12 | Label overlap inflates power for fwd_logret_24 | LOW | MEDIUM | Sequential bootstrapping or non-overlapping subsampling; effective information ratio | 10, 11 | Open |
+| R13 | Break-even DA sensitivity to fee tier | MEDIUM | MEDIUM | Cost sensitivity at {10, 15, 20, 25, 30} bps in Phase 7.1 and Phase 8 | 7, 8 | Open |
+| R14 | Temporal instability of features (MI in 2022-2023 only) | HIGH | HIGH | Regime-conditional training; rolling MI proxy; per-regime performance reporting | 11, 12, 13 | Open |

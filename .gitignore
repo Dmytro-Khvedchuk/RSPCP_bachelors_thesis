@@ -313,3 +313,4 @@ container_logs_*
 
 # Logs
 logs/
+legacy_project/
