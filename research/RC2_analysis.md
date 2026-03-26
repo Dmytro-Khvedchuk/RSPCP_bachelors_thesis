@@ -816,3 +816,103 @@ The keep/drop decision depends on the per-bar-type degeneracy observed (see Tabl
 - For downstream modeling (Phases 9-10), feature matrices should exclude degenerate
   features per bar type to avoid numerical issues in Ridge/ML training.
 - No post-hoc deviations introduced. Trial count remains at 60.
+
+---
+
+## Appendix D: MI Normalization Fix (Phase 7.4, Audit Gap 5, GH #74)
+
+**Notebook:** `research/RC7_mi_normalization.ipynb`
+**Date:** 2026-03-26
+
+### D.1 Problem Statement
+
+RC2 Section 3.3 reported an MI/H(target) % column intended to give a normalised
+effect size for mutual information. The denominator used the Gaussian differential
+entropy of the target: `H(X) = 0.5 * log(2*pi*e*var(X))`. For `fwd_logret_1` on
+BTCUSDT/dollar bars, this produced **H(target) = -2.5371 nats** -- a negative value.
+
+Differential entropy of continuous random variables can be negative (unlike discrete
+Shannon entropy, which is always >= 0). The critical variance threshold where
+H_gauss = 0 is `var_crit = 1 / (2*pi*e) ~ 0.0586`. Crypto bar-level log returns
+have variance on the order of 1e-4, well below this threshold, making H(target)
+negative for all (asset, bar_type) combinations in this study.
+
+The `build_mi_table()` method in `rc2_validation_analysis.py` used
+`max(H(target), 1e-12)` as a denominator guard, which masked the negative entropy
+by substituting an astronomically small positive number, producing MI/H(target)
+values on the order of millions of percent -- meaningless.
+
+### D.2 Impact Assessment
+
+**Keep/drop decisions: UNAFFECTED.** The feature validation pipeline (`validation.py`)
+uses MI permutation p-values with Benjamini-Hochberg correction for significance
+testing. H(target) and MI/H(target) are never referenced in the validation code.
+The MI/H(target) % column existed only in the RC2 display layer for thesis reporting.
+
+Verification (from notebook Section 1, Step 3):
+- `FeatureValidator._run_mi_test()` does not reference entropy
+- `RC2ValidationAnalyzer.build_mi_table()` receives `target_entropy` as a parameter
+  but uses it only for the display column
+
+### D.3 Normalization Alternatives Evaluated
+
+Four candidates were compared on BTCUSDT/dollar, ETHUSDT/dollar, and BTCUSDT/time_1h:
+
+| Method | Formula | Valid? | Ranking preserved? |
+|--------|---------|--------|-------------------|
+| Raw MI (nats) | MI(X; Y) | Always | Baseline |
+| MI / H_disc(feature) | MI / (-sum(p*log(p))) using histogram bins | Always (H_disc >= 0) | Spearman rho ~ 1.0 vs raw MI |
+| NMI geometric | MI / sqrt(H_disc(feat) * H_disc(target)) | Always | Spearman rho ~ 1.0 vs raw MI |
+| MI / log(k) | MI / log(n_bins) | Always | Identical to raw MI (constant divisor) |
+
+All normalisation methods produce effectively identical feature rankings. Since the
+project uses MI p-values (not MI magnitudes) for feature selection, the choice of
+normalisation is irrelevant to decisions.
+
+### D.4 Chosen Fix
+
+**Primary metric: Raw MI (nats)** with a qualitative effect-size scale:
+
+| MI (nats) | Interpretation |
+|-----------|---------------|
+| > 0.05 | Strong |
+| 0.01 -- 0.05 | Moderate |
+| 0.001 -- 0.01 | Weak |
+| < 0.001 | Negligible |
+
+**Supplementary metric: MI / H_disc(feature) %** using discrete Shannon entropy
+computed via histogram binning (Sturges' rule). This is always non-negative and
+provides a bounded [0, 100%] interpretability aid.
+
+### D.5 Corrected RC2 Section 3.3 Interpretation
+
+The MI results from Section 3.3 remain valid in all respects except the MI/H(target) %
+column, which should be disregarded. The corrected interpretation:
+
+- **MI significance (BH-corrected):** 8/23 features (unchanged).
+- **Effect sizes:** All features fall in the Weak or Negligible categories (MI < 0.05
+  nats), consistent with financial signals being inherently weak.
+- **Feature ranking by MI:** Unchanged (ranking depends only on raw MI values).
+- **Keep/drop decisions:** Unchanged (based on p-values, not effect sizes).
+
+### D.6 Changes to `validation.py`
+
+**None required.** The validation pipeline does not use MI normalisation. The
+`compute_mi_score()` function returns raw MI in nats, and the `_run_mi_test()` method
+uses permutation-based p-values for significance. No code change is needed.
+
+### D.7 Changes to `rc2_validation_analysis.py`
+
+**Deferred.** The `build_mi_table()` method could be updated to replace the
+MI/H(target) % column with the qualitative effect-size scale. However, since the RC2
+notebook has already been run and will not be re-run, changing the method now would
+create an inconsistency with stored outputs. The fix will be applied if/when the
+method is reused in future research checkpoints (RC3/RC4).
+
+### D.8 Impact on RC2 Conclusions
+
+- Risk #5 from the Risks and Concerns section ("MI effect size calculation") is now
+  fully resolved.
+- The MI/H(target) column in the RC2 notebook output should be disregarded by thesis
+  readers. The corrected table is in `research/RC7_mi_normalization.ipynb` Section 5.
+- No post-hoc deviations introduced. Trial count remains at 60.
