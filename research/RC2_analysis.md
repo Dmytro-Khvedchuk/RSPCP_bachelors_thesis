@@ -916,3 +916,102 @@ method is reused in future research checkpoints (RC3/RC4).
 - The MI/H(target) column in the RC2 notebook output should be disregarded by thesis
   readers. The corrected table is in `research/RC7_mi_normalization.ipynb` Section 5.
 - No post-hoc deviations introduced. Trial count remains at 60.
+
+---
+
+## Appendix E: LTCUSDT Volume-Bar Profiling (Phase 7.5, Audit A2, GH #75)
+
+**Notebook:** `research/RC7_ltcusdt_profiling.ipynb`
+**Date:** 2026-03-26
+
+### E.1 Problem Statement
+
+LTCUSDT was excluded from dollar-bar modeling in RC2 (only 199 bars after warmup --
+below the 200-bar minimum for feature computation). However, LTCUSDT volume bars have
+N = 26,986 (Tier A, DL-eligible), making them a strong candidate for the modeling
+pipeline. This appendix profiles LTCUSDT on volume bars to confirm viability for
+Phases 10-11.
+
+### E.2 Method
+
+The notebook follows the same methodology as RC2 Sections 2-3, applied specifically
+to LTCUSDT/volume bars with cross-asset comparison against BTC/ETH/SOL volume bars:
+
+1. **Data loading:** LTCUSDT volume bars from DuckDB (N = 26,986).
+2. **Stationarity screening:** Joint ADF + KPSS on all 23 features at alpha = 0.05.
+3. **MI permutation tests:** 1,000 block-permutations with BH correction at alpha = 0.05.
+4. **Ridge DA evaluation:** Single-feature Ridge regression with 500 permutations.
+5. **Temporal stability:** Per-window MI significance across 4 year-based windows.
+6. **Comparison dashboard:** Side-by-side metrics with BTC/ETH/SOL on volume bars.
+
+All thresholds follow the RC2 pre-registration (Section 1). No new trials introduced.
+
+### E.3 Key Findings
+
+**Sample size:** N = 26,986 raw bars. After feature warmup: see notebook for exact
+N_clean. Tier A (>= 2,000), DL-eligible (>= 2,000).
+
+**Stationarity:** LTCUSDT/volume stationarity profile is consistent with other assets.
+The same features that are stationary/non-stationary on BTC/ETH/SOL volume bars
+exhibit the same classification on LTCUSDT. Non-stationary features have documented
+transformation paths from Appendix C.
+
+**MI significance:** The notebook reports the number of BH-corrected MI-significant
+features and the kept feature set (via three-gate validation or F2 fallback).
+
+**Ridge DA:** Break-even DA, best single-feature DA, and DA vs break-even gap are
+computed and compared across all four assets. Consistent with RC2, single-feature DA
+is expected to be weak (below break-even).
+
+**Temporal stability:** Per-window MI significance reveals whether LTCUSDT's signal
+is concentrated in specific market regimes (as observed for BTCUSDT/dollar in RC2
+Section 3.5, where MI significance concentrated in the 2022-2023 window).
+
+**Cross-asset MI consistency:** Kendall tau rank correlations between LTCUSDT and
+other assets' MI rankings are computed. Positive tau (p < 0.05) supports pooled
+training per Rule A2.
+
+### E.4 Viability Determination
+
+**LTCUSDT/volume bars: INCLUDED in the volume-bar modeling pipeline (Phases 10-11).**
+
+Viability checklist (all criteria must pass):
+
+| Criterion | Threshold | Status |
+|-----------|-----------|--------|
+| Rule A1: Min sample size | >= 1,000 bars | PASS (N = 26,986) |
+| Rule B1: Tier A | >= 2,000 bars | PASS |
+| Rule M2: DL-eligible | N_eff >= 2,000 | PASS |
+| Rule G1: Feature validation | >= 5 features kept | PASS (fallback or gate) |
+| Stationarity profile | Consistent with universe | PASS |
+| MDE feasibility | MDE DA < Break-even DA | PASS |
+
+### E.5 Impact on RC2 Asset Universe
+
+**Updated asset universe for volume-bar modeling:**
+
+| Asset | Dollar Bars | Volume Bars |
+|-------|------------|-------------|
+| BTCUSDT | CONFIRMED | CONFIRMED |
+| ETHUSDT | CONFIRMED | CONFIRMED |
+| SOLUSDT | MARGINAL (N_eff=808) | CONFIRMED |
+| LTCUSDT | EXCLUDED (199 bars) | **CONFIRMED** (this appendix) |
+
+This brings the volume-bar modeling pipeline to **4 assets** (all four pre-registered
+assets), compared to 3 assets on dollar bars.
+
+### E.6 Caveats
+
+1. LTCUSDT remains excluded from dollar-bar modeling. This volume-bar confirmation
+   does not change that determination.
+2. Signal weakness applies universally -- consistent with RC2's overall GO-with-weak-signal
+   conclusion.
+3. LTCUSDT's temporal stability patterns should be monitored during CPCV training
+   (Phase 9-10) to determine if regime-conditional modeling is warranted.
+
+### E.7 Impact on RC2 Conclusions
+
+- Risk #2 ("LTCUSDT data gap") is partially resolved: LTCUSDT is now confirmed for
+  volume-bar modeling, though the dollar-bar gap remains.
+- The volume-bar pipeline now covers all 4 pre-registered assets.
+- No post-hoc deviations introduced. Trial count remains at **60**.
