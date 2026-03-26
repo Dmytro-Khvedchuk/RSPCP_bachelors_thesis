@@ -623,3 +623,71 @@ All three proceed: fwd_logret_1, fwd_logret_4, fwd_logret_24
 6. **Break-even DA sensitivity.** The 20 bps round-trip cost assumption is for standard
    Binance tier. VIP tiers with lower fees would reduce break-even DA, potentially
    making some features economically viable. This sensitivity should be explored.
+
+---
+
+## Appendix C: Stationarity Transformation Policy (7.3)
+
+**Notebook:** `research/RC7_stationarity_policy.ipynb` (GH #73, Audit B3)
+**Date:** 2026-03-26
+
+### C.1 Problem Statement
+
+RC2 Section 2 identified 40 unit-root cases (10.2%) and 108 trend-stationary cases
+(27.6%) across 391 stationarity tests on 17 (asset, bar_type) combinations. The project
+lacked an explicit policy for when and how to transform non-stationary features. This
+appendix documents the formal policy established in RC7.
+
+### C.2 Policy Rules
+
+| Rule | Name | Description |
+|------|------|-------------|
+| ST1 | Primary Bar Type Governs | Unit root on dollar bars -> transform globally across all bar types |
+| ST2 | Secondary Bar Type Flag | Unit root only on non-dollar bars -> flag in docs, do NOT transform |
+| ST3 | Inconclusive / Constant | Per 7.2 determination: exclude degenerate features from affected combos |
+| ST4 | Trend-Stationary Accepted | Trend-stationary features accepted without transformation for tree-based models |
+
+### C.3 Transformation Mapping
+
+| Feature | Transformation | Formula | Rationale |
+|---------|---------------|---------|-----------|
+| `atr_14` | `pct_atr` | `atr_14 / close` | Remove absolute price scale dependence |
+| `amihud_24` | `rolling_zscore` | `(x - rolling_mean(24)) / rolling_std(24)` | Normalise across regime changes |
+| `hurst_100` | `first_difference` | `hurst_100.diff()` | Remove slow drift in estimation window |
+| `bbwidth_20_2.0` | `first_difference` | `bbwidth_20_2.0.diff()` | Remove absolute spread scaling |
+| All other 19 features | none | -- | Already stationary or trend-stationary |
+
+### C.4 Verification
+
+All four transformations were applied across every (asset, bar_type) combination where
+the feature exists, and re-tested with joint ADF + KPSS at alpha = 0.05. Results are
+in `research/RC7_stationarity_policy.ipynb` Section 3 (before/after comparison table).
+
+### C.5 Resolution of RC2 Section 2 Cases
+
+- **40 unit-root cases:** Resolved via ST1 (transform on dollar-bar features) and
+  ST2 (flag secondary-bar-only cases). No unit roots remain unaddressed.
+- **108 trend-stationary cases:** Accepted per ST4. Tree-based models are invariant
+  to monotonic transformations. Noted as a caveat for Ridge validation.
+- **33 inconclusive cases:** Handled per ST3 and 7.2. Degenerate (constant) features
+  are excluded from modeling for affected combinations.
+- **210 stationary cases:** No action needed.
+
+### C.6 Impact on Downstream Modeling
+
+The transformation policy means the feature pipeline must apply four transformations
+before features enter MI/DA validation, CPCV training, or live prediction:
+
+1. Replace `atr_14` with `atr_14 / close`
+2. Replace `amihud_24` with rolling z-score (window=24)
+3. Replace `hurst_100` with `hurst_100.diff()`
+4. Replace `bbwidth_20_2.0` with `bbwidth_20_2.0.diff()`
+
+These transformations are applied after indicator computation and before NaN dropping.
+The first valid observation is lost for diff-based transformations, and the first 23
+observations are lost for the rolling z-score (window=24 minus 1).
+
+**Note:** Two of the four transformed features (`amihud_24`, `bbwidth_20_2.0`) are in the
+RC2 kept feature set (via F2 fallback). Their transformed versions should be re-validated
+with MI and DA tests to confirm the signal is preserved. This is tracked as a downstream
+task for Phase 6.
