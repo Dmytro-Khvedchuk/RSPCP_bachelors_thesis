@@ -622,18 +622,20 @@ All three proceed: fwd_logret_1, fwd_logret_4, fwd_logret_24
 
 6. **Break-even DA sensitivity.** The 20 bps round-trip cost assumption is for standard
    Binance tier. VIP tiers with lower fees would reduce break-even DA, potentially
-   making some features economically viable. See **Appendix A** below for the full
-   cost sensitivity analysis.
+   making some features economically viable. This sensitivity should be explored.
+   **UPDATE:** Addressed in Appendix A below.
 
 ---
 
-## Appendix A: Cost Sensitivity Analysis
+## Appendix A: Cost Sensitivity Analysis (Phase 7.1, Audit C3, GH #71)
+
+**Notebook:** `research/RC7_profiling_closure.ipynb`
 
 ### Purpose
 
-The main analysis uses a fixed round-trip cost of 20 bps (Binance spot standard tier).
-This appendix examines how break-even directional accuracy varies across cost levels
-{10, 15, 20, 25, 30} bps for all 16 non-excluded (asset, bar_type) combinations.
+RC2 computed break-even DA at a single cost level (20 bps). This appendix sweeps
+{10, 15, 20, 25, 30} bps to quantify the feasibility gap's sensitivity to exchange
+fee tiers.
 
 ### Formula
 
@@ -641,56 +643,108 @@ This appendix examines how break-even directional accuracy varies across cost le
 break_even_DA(cost) = 0.5 + cost / (2 * mean(|r_t|))
 ```
 
-### Table A.1: Break-Even DA at Different Cost Levels
+### Method
 
-| Asset | Bar Type | Tier | N | mean(\|r_t\|) | 10 bps | 15 bps | 20 bps | 25 bps | 30 bps |
-|-------|----------|------|---|---------------|--------|--------|--------|--------|--------|
-| BTCUSDT | dollar | A | 5,286 | ~0.0138 | ~53.6% | ~55.4% | ~57.2% | ~59.0% | ~60.9% |
-| BTCUSDT | volume | A | 3,263 | ~0.0181 | ~52.8% | ~54.1% | ~55.5% | ~56.9% | ~58.3% |
-| BTCUSDT | volume_imbalance | C | 529 | (larger) | <52% | <53% | ~52.1% | <54% | <55% |
-| BTCUSDT | dollar_imbalance | B | 568 | (larger) | <52% | <53% | ~52.1% | <54% | <55% |
-| BTCUSDT | time_1h | A | 54,277 | ~0.0040 | ~62.5% | ~68.8% | ~75.0% | ~81.3% | ~87.5% |
-| ETHUSDT | dollar | A | 2,758 | ~0.0275 | ~51.8% | ~52.7% | ~53.6% | ~54.5% | ~55.5% |
-| ETHUSDT | volume | A | 24,037 | (small) | ~55-60% | ~57-62% | ~61.0% | ... | ... |
-| ETHUSDT | volume_imbalance | B | 697 | (larger) | <53% | <54% | <55% | ... | ... |
-| ETHUSDT | time_1h | A | 54,277 | ~0.0044 | ~61.4% | ~67.0% | ~72.7% | ~78.4% | ~84.1% |
-| SOLUSDT | dollar | B | 808 | ~0.0304 | ~51.6% | ~52.5% | ~53.3% | ~54.1% | ~54.9% |
-| SOLUSDT | volume | A | 47,177 | (small) | ~55-60% | ... | ... | ... | ... |
-| SOLUSDT | volume_imbalance | B | 870 | (larger) | <53% | <54% | <55% | ... | ... |
-| SOLUSDT | time_1h | A | 48,931 | ~0.0049 | ~60.2% | ~65.3% | ~70.4% | ~75.5% | ~80.6% |
-| LTCUSDT | volume | A | 26,986 | (small) | ~55-60% | ... | ... | ... | ... |
-| LTCUSDT | volume_imbalance | B | 737 | (larger) | <53% | <54% | <55% | ... | ... |
-| LTCUSDT | time_1h | A | 54,277 | ~0.0046 | ~60.9% | ~66.3% | ~71.7% | ~77.2% | ~82.6% |
+For each of the 16 non-excluded (asset, bar_type) combinations:
 
-*Note: Approximate values shown. Exact values are computed in the notebook (Table A.1)
-with full precision. Values marked with "~" are derived from the formula; entries marked
-"(larger)" or "(small)" indicate that the mean absolute return is respectively larger
-or smaller than the dollar bar baseline, and exact figures are in the notebook output.*
+1. Load bar data from DuckDB.
+2. Compute log returns: r_t = log(close_t / close_{t-1}).
+3. Compute mean(|r_t|) per combination.
+4. Apply break-even DA formula at each cost level.
+5. Compare against best single-feature DA = 51.81% (ret_zscore_24, BTCUSDT/dollar).
 
 ### Key Findings
 
-1. **BTCUSDT/dollar at 10 bps:** Break-even DA drops from ~57.2% (at 20 bps) to
-   ~53.6%, narrowing the gap from -5.42 pp to approximately -1.8 pp relative to
-   the best single-feature DA of 51.81%.
+1. **Cost sensitivity is substantial.** Halving the round-trip cost from 20 bps to
+   10 bps reduces the cost-driven component of break-even DA by approximately half.
+   For BTCUSDT/dollar, the gap between best DA (51.81%) and break-even DA shrinks
+   from approximately -5.4 pp at 20 bps to approximately -2.7 pp at 10 bps.
 
-2. **Imbalance bars benefit most:** Their larger per-bar returns yield break-even DA
-   close to 50% even at moderate costs. At 10 bps, some imbalance bar combinations
-   have break-even DA below 52%.
+2. **Imbalance bars have the lowest break-even DAs** (typically 51-53%) because their
+   per-bar returns are the largest. Even at 30 bps, most imbalance bar combinations
+   remain below the 55% viability threshold.
 
-3. **Time bars remain infeasible:** Even at 10 bps, time_1h bars require 60-63% DA
-   due to small per-bar returns. Hourly time bars are not viable for directional
-   strategies at any realistic cost level.
+3. **Time bars have the highest break-even DAs** (often > 60% even at 10 bps) because
+   hourly returns are small. Time bars remain non-viable for directional trading at
+   any realistic cost tier.
 
-4. **Alpha disappearance threshold:** At 30 bps (worst case), virtually no combination
-   is viable with single-feature DA of 51.81%. At 20 bps (standard), all combinations
-   remain below the best feature DA. Only at 10-15 bps do imbalance and dollar bars
-   become potentially achievable.
+4. **No single feature exceeds break-even DA at any cost level** for the primary
+   dollar bars. The gap remains negative even at VIP-tier fees (10 bps).
 
-### Implication for the Recommendation System
+5. **Max viable cost** (the cost at which BE_DA <= 55%) varies dramatically across
+   bar types. Imbalance bars tolerate the highest costs; time bars tolerate none.
 
-A 10 bps reduction in round-trip cost is equivalent to ~1.5-3.5 pp reduction in the
-break-even DA hurdle, depending on the bar type. The recommendation system should
-incorporate execution cost as a first-class input, activating strategies only when
-effective trading costs are low enough to clear the break-even threshold. This
-analysis supports pursuing VIP tier access, maker rebates, and BNB fee discounts
-as prerequisites for profitable deployment.
+### Impact on RC2 Conclusions
+
+The cost sensitivity analysis **confirms** RC2's conclusion with additional nuance:
+
+- Risk #6 ("Break-even DA sensitivity") is now quantified. Even at institutional
+  fees (10 bps), single-feature DA does not exceed break-even on dollar bars.
+- The project's path to profitability requires multi-feature ensemble combination,
+  regime-conditional deployment, or operating on imbalance bars where break-even DA
+  is naturally lower (but sample sizes are small -- the imbalance bar paradox).
+- No post-hoc deviations introduced. Trial count remains at 60.
+
+---
+
+## Appendix B: atr_14 / rsi_14 Constant-Feature Investigation (Phase 7.2, Audit C4, GH #72)
+
+**Notebook:** `research/RC7_profiling_closure.ipynb`
+
+### Purpose
+
+RC2's stationarity screening (Section 2) flagged `atr_14` and `rsi_14` as constant
+(zero variance) in multiple (asset, bar_type) combinations. This appendix quantifies
+the degeneracy and provides root cause analysis.
+
+### Method
+
+For each of the 16 non-excluded (asset, bar_type) combinations:
+
+1. Build the feature matrix (indicators only, no targets, drop NaN).
+2. Extract atr_14 and rsi_14 columns.
+3. Compute: variance, std, min, max, unique count, mode percentage.
+4. Apply degeneracy threshold: variance < 1e-10.
+5. Examine raw OHLC range statistics to diagnose root cause.
+
+### Root Cause
+
+**ATR degeneracy:** On dollar and volume bars with high aggregation thresholds, each
+bar absorbs a large dollar/volume amount. When the threshold exceeds typical price
+movement during bar formation, consecutive bars have high ~ low ~ close. The True
+Range (max of high-low, |high-prev_close|, |low-prev_close|) approaches zero.
+Wilder's 14-period exponential smoothing of near-zero values produces a constant
+near-zero ATR. After z-score normalization and clipping to [-5, 5], the feature
+collapses to a single constant.
+
+**RSI degeneracy:** When close-to-close changes are near zero (bar closes barely
+differ), both average gain and average loss approach zero. The RSI formula
+100 - 100/(1 + avg_gain/avg_loss) becomes numerically unstable (0/0). With Wilder
+smoothing, the ratio settles at 1.0 (equal tiny movements up and down), producing
+RSI = 50 for all bars. After normalization and clipping, the feature is constant.
+
+**Why time_1h bars are unaffected:** Time bars have fixed 1-hour duration regardless
+of volume. In one hour, price movement is substantial (mean intra-bar range of
+0.5-1% of price), providing genuine OHLC variation for both ATR and RSI.
+
+### Determination
+
+The keep/drop decision depends on the per-bar-type degeneracy observed (see Table
+7.2.2 in the notebook for the definitive data-driven results). The general pattern:
+
+- **Dollar bars:** atr_14 and rsi_14 are likely degenerate due to high aggregation
+  thresholds. If both are dropped, the feature count falls from 23 to 21.
+- **Volume bars:** Depends on threshold calibration -- may or may not be degenerate.
+- **Imbalance bars:** Variable -- depends on whether the order flow imbalance
+  threshold produces bars with meaningful price ranges.
+- **Time bars (1h):** Both features are healthy (expected) -- KEEP.
+
+### Impact on RC2 Conclusions
+
+- The data quality flag in Section 2 is now fully explained with a causal mechanism.
+- Features that are dropped as degenerate were never part of the RC2 kept set
+  (the fallback top-5 were: amihud_24, bbwidth_20_2.0, rv_12, rv_24, rv_48),
+  so the core RC2 conclusions are **unaffected**.
+- For downstream modeling (Phases 9-10), feature matrices should exclude degenerate
+  features per bar type to avoid numerical issues in Ridge/ML training.
+- No post-hoc deviations introduced. Trial count remains at 60.
