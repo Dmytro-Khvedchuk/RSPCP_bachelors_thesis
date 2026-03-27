@@ -13,11 +13,13 @@ into a trained recommendation system that selects which trading signals to act o
 framework is statistically rigorous: walk-forward cross-validation, Monte Carlo permutation tests,
 and deflated Sharpe ratios guard against overfitting.
 
-**Current state:** Phases 1–5 complete — OHLCV ingestion, López de Prado alternative bars,
-RC1 research checkpoint, full feature engineering pipeline (23 indicators, regression
-targets, feature matrix builder, and permutation-test validation), and statistical profiling
-(distribution, serial dependence, volatility modeling, predictability assessment) with 795
-tests passing.
+**Current state:** Phases 1–7 complete — OHLCV ingestion, López de Prado alternative bars,
+RC1 research checkpoint, full feature engineering pipeline (21 indicators after Phase 7 audit,
+regression targets, feature matrix builder, and permutation-test validation), statistical
+profiling (distribution, serial dependence, volatility modeling, predictability assessment),
+and RC2 profiling closure (6 audit gaps resolved: feature degeneracy audit, stationarity
+policy, MI normalization, LTCUSDT/volume Tier A confirmation, conditional break-even DA,
+Tier B protocol for SOLUSDT).
 
 ---
 
@@ -45,7 +47,8 @@ dependencies between layers. All data classes use Pydantic `BaseModel` — no ra
 | 3 | `research/` | RC1 analysis (coverage, returns, ACF, bar comparison, charts) | Done |
 | 4 | `features/` | Technical indicators, regression targets, matrix builder, validation | Done |
 | 5 | `profiling/` | Statistical profiling per asset | Done |
-| 7 | `backtest/` | Event-driven backtest engine | Planned |
+| 6–7 | (research) | RC2 profiling closure — 6 audit gaps, stationarity policy, Tier B protocol | Done |
+| 8 | `backtest/` | Event-driven backtest engine | Planned |
 | 8 | `strategy/` | Momentum, DRTS, mean-reversion strategies | Planned |
 | 9–10 | `forecasting/` | Classification (SIDE) + regression (SIZE) | Planned |
 | 12 | `recommendation/` | ML recommendation system (meta-labeling) | Planned |
@@ -336,13 +339,17 @@ indicators, forward-looking regression targets, a matrix builder that chains the
 clean `FeatureSet`, and a permutation-test validator that gates features before they reach
 any model.
 
-### Feature groups (23 features with default config)
+### Feature groups (21 features — post Phase 7 audit)
+
+`atr_14` and `rsi_14` were dropped in Phase 7.2 due to universal degeneracy across all
+assets and bar types. 7 features require a stationarity transformation before modeling
+(`amihud_24`, `bbwidth_20_2.0`, `gk_vol_24`, `park_vol_24`, `rv_12`, `rv_24`, `rv_48`).
 
 | Group | Features | Column prefix |
 |-------|----------|---------------|
 | Returns (4) | Log returns at horizons 1, 4, 12, 24 bars | `logret_` |
-| Volatility (6) | Realized vol (3 windows), Garman-Klass, Parkinson, ATR | `rv_`, `gk_vol_`, `park_vol_`, `atr_` |
-| Momentum (5) | ATR-normalised EMA crossover, RSI-14, ROC at 3 periods | `ema_xover_`, `rsi_`, `roc_` |
+| Volatility (5) | Realized vol (3 windows), Garman-Klass, Parkinson | `rv_`, `gk_vol_`, `park_vol_` |
+| Momentum (4) | ATR-normalised EMA crossover, ROC at 3 periods | `ema_xover_`, `roc_` |
 | Volume (3) | Volume z-score, OBV slope, Amihud illiquidity ratio | `vol_zscore_`, `obv_slope_`, `amihud_` |
 | Statistical (5) | Return z-score, Bollinger %B, Bollinger width, price slope, Hurst exponent | `ret_zscore_`, `bbpctb_`, `bbwidth_`, `slope_`, `hurst_` |
 
@@ -589,7 +596,7 @@ The full plan is in [`IMPLEMENTATION_PLAN.md`](./IMPLEMENTATION_PLAN.md). Summar
 
 **Block I — Data & Infrastructure (Phases 1–8)**
 
-Ingestion → alternative bars → RC1 → features → profiling ✓ → RC2 → backtest engine → strategies
+Ingestion → alternative bars → RC1 → features → profiling → RC2 closure ✓ → backtest engine → strategies
 
 **Block II — Models & Recommendation (Phases 9–14)**
 
