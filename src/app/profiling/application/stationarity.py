@@ -24,6 +24,9 @@ _KNOWN_TRANSFORMATIONS: dict[str, str] = {
     "amihud_": "rolling_zscore",
     "hurst_": "first_difference",
     "bbwidth_": "first_difference",
+    "gk_vol_": "rolling_zscore",
+    "park_vol_": "first_difference",
+    "rv_": "first_difference",
 }
 """Prefix-to-transformation mapping for known non-stationary feature families."""
 
