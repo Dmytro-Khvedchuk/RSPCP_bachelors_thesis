@@ -1096,3 +1096,124 @@ This means:
   selective trading during HIGH-vol periods lowers the break-even DA, converting
   marginal signals into potentially viable strategies.
 - No post-hoc deviations introduced. Trial count remains at **60**.
+
+---
+
+## Appendix G: SOLUSDT Tier B Handling Protocol (Phase 7.7, Audit Gap 4, GH #77)
+
+**Notebook:** `research/RC7_solusdt_tier_b_protocol.ipynb`
+**Date:** 2026-03-26
+
+### G.1 Problem Statement
+
+RC2 Section 8 classified SOLUSDT/dollar as "MARGINAL (N_eff = 808 < 1,000) --
+included but flagged." However, the project lacked an explicit protocol defining
+what "flagged" means in practice: what specific adjustments apply to modeling,
+evaluation, reporting, and evidence weighting for small-sample assets. This
+appendix establishes that protocol.
+
+### G.2 Tier Classification
+
+Assets are classified by effective sample size (N_eff = clean rows after feature
+warmup and NaN removal):
+
+| Tier | N_eff range | Treatment |
+|------|-------------|-----------|
+| A | >= 2,000 | Standard pipeline: standard regularisation, asymptotic CIs, primary evidence |
+| B | 500 -- 1,999 | Modified pipeline: stronger regularisation, bootstrapped CIs, robustness check only |
+| C | < 500 | Excluded from modeling: statistical profiling only |
+
+**Current dollar-bar classification:**
+
+| Asset | N_eff | Tier | MDE DA |
+|-------|-------|------|--------|
+| BTCUSDT | 5,286 | A | ~51.4% |
+| ETHUSDT | 2,454 | A | ~52.0% |
+| SOLUSDT | 808 | B | 54.37% |
+| LTCUSDT | 199 | C | N/A |
+
+### G.3 Statistical Power Analysis
+
+The Minimum Detectable Effect (MDE) for directional accuracy at N_eff = 808 is
+54.37% (one-sided test, alpha = 0.05). This means effects smaller than
++4.37 pp above 50% are invisible to hypothesis tests on SOLUSDT/dollar.
+
+**Power comparison at key DA values:**
+
+| True DA | BTCUSDT power | ETHUSDT power | SOLUSDT power |
+|---------|--------------|--------------|--------------|
+| 51% | ~10% | ~7% | ~5% |
+| 52% | ~35% | ~20% | ~10% |
+| 53% | ~70% | ~42% | ~17% |
+| 55% | ~99% | ~90% | ~50% |
+
+SOLUSDT achieves only ~50% power at DA = 55%, compared to ~99% for BTCUSDT.
+Results that fail to reject H0 on SOLUSDT are inconclusive, not evidence of
+no effect.
+
+### G.4 Regularisation Protocol
+
+**Rationale:** With p/N ~ 0.028 (23 features / 808 rows), SOLUSDT has fewer
+observations per parameter than Tier A assets. Optimal Ridge alpha scales
+approximately as p/N (Hoerl & Kennard, 1970), so a 2x multiplier is a
+conservative adjustment (the theory suggests ~6.5x based on the BTC/SOL N ratio).
+
+**Specific adjustments for Tier B:**
+
+| Parameter | Tier A | Tier B |
+|-----------|--------|--------|
+| Ridge alpha | From CPCV | CPCV value x 2 |
+| LightGBM min_child_samples | From CPCV | CPCV value x 2 |
+| LightGBM num_leaves | From CPCV | CPCV value / 2 (floor) |
+| LightGBM max_depth | From CPCV | max(CPCV value - 1, 2) |
+| CPCV n_splits | 5 | 3 |
+
+### G.5 Bootstrap CI Protocol
+
+All SOLUSDT/dollar metrics use bootstrapped 95% CIs (10,000 resamples, percentile
+method). Coverage simulations in the notebook confirm that bootstrap provides
+robust coverage at N = 808.
+
+Tier A assets may use asymptotic (Wald) CIs where the normal approximation
+is appropriate, but bootstrap is always acceptable.
+
+### G.6 Reporting Protocol
+
+**Tables:**
+- Tier B rows have a light orange background.
+- Asset name is suffixed with a dagger symbol.
+- Table captions include: "dagger = Tier B (N_eff < 2,000; bootstrapped CIs,
+  stronger regularisation)."
+
+**Charts:**
+- Tier B bars use orange fill with hatching (///).
+- Tier B scatter markers use diamonds (D) instead of circles.
+- Error bars show bootstrapped CIs for Tier B (typically wider).
+
+### G.7 Evidence Hierarchy
+
+- SOLUSDT/dollar results are NOT primary evidence for thesis claims.
+- They serve as robustness checks for claims established on Tier A assets.
+- For RC4 "majority of assets positive": SOLUSDT counts with the Tier B flag,
+  but cannot be the sole positive asset.
+- A claim supported only by Tier B is not valid.
+
+### G.8 Downstream Phase Reference
+
+| Phase | Tier B change |
+|-------|---------------|
+| 10 (Classification) | Stronger regularisation, 3-fold CPCV |
+| 11 (Regression) | Stronger regularisation, bootstrapped CIs |
+| 12 (Recommendation) | Tier field in output, Kelly fraction x 0.5 |
+| 13 (Backtest) | Flagged results, bootstrapped performance CIs |
+| 14 (Evaluation) | Robustness check only, not primary evidence |
+| 15 (Monte Carlo) | Same validation, interpret with caution |
+| RC4 (Go/No-Go) | Counts with flag, cannot be sole positive |
+
+### G.9 Impact on RC2 Conclusions
+
+- The "MARGINAL -- included but flagged" status from RC2 Section 8 is now fully
+  operationalised with 8 numbered protocol rules (P1--P8).
+- Every downstream phase has an explicit Tier B handling specification.
+- The evidence hierarchy ensures SOLUSDT cannot inflate thesis claims.
+- No post-hoc deviations introduced. Trial count remains at **60**.
