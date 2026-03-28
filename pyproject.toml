@@ -33,15 +33,6 @@ dependencies = [
     "typer>=0.24.1",
 ]
 
-[tool.pyright]
-include = ["src"]
-exclude = ["src/tests/*", "src/app/research/*"]
-venvPath = "."
-venv = ".venv"
-reportMissingImports = true
-reportMissingTypeStubs = true
-reportPrivateUsage = true
-
 [tool.ruff]
 # Exclude a variety of commonly ignored directories.
 exclude = [
@@ -201,7 +192,7 @@ dev = [
     "ipykernel>=7.2.0",
     "isort>=8.0.1",
     "jupyterlab>=4.5.6",
-    "pyright>=1.1.408",
     "pytest>=9.0.2",
     "ruff>=0.15.4",
+    "ty>=0.0.26",
 ]

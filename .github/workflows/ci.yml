@@ -28,8 +28,8 @@ jobs:
       - name: Ruff lint (includes import sorting)
         run: uv run ruff check --config=pyproject.toml .
 
-      - name: Pyright
-        run: uv run pyright --project=pyproject.toml
+      - name: ty
+        run: uv run ty check src/ --exclude 'src/tests/**' --exclude 'src/app/research/**'
 
   test:
     name: Tests

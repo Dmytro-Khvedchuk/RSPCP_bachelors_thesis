@@ -218,7 +218,7 @@ def _compute_acf_pacf(
     acf_result: tuple[np.ndarray, np.ndarray] = acf(data, nlags=effective_lag, alpha=0.05)  # type: ignore[type-arg, assignment]
     acf_values: np.ndarray = acf_result[0]  # type: ignore[type-arg]
 
-    pacf_values: np.ndarray = pacf(data, nlags=effective_lag, method="ywm")  # type: ignore[type-arg]
+    pacf_values: np.ndarray = pacf(data, nlags=effective_lag, method="ywm")  # type: ignore[type-arg]  # ty: ignore[invalid-assignment]
 
     return acf_values, pacf_values
 

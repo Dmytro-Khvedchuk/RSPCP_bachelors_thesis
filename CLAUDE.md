@@ -15,7 +15,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 # Development
 just run                    # Run main.py
-just lint                   # Run all pre-commit hooks (ruff format + ruff lint + pyright)
+just lint                   # Run all pre-commit hooks (ruff format + ruff lint + ty)
 just test                   # Run full test suite (uv run pytest src/tests/)
 just test src/tests/research/  # Run specific test module
 just test -k "test_name"    # Run single test by name
@@ -106,7 +106,7 @@ Tests mirror the source structure under `src/tests/<module>/`. Pytest markers: `
 |-------|------|------|
 | 1 | Formatter | `ruff format` (119 char lines, double quotes) |
 | 2 | Linter | `ruff` (~25 rule categories incl. `D`, `DOC`, `ANN`, `S`, `N`, `PERF`) |
-| 3 | Type checker | `pyright` (strict for `src/`, excludes `src/tests/` and `src/app/research/`) |
+| 3 | Type checker | `ty` (Astral, excludes `src/tests/` and `src/app/research/`) |
 
 Import sorting is handled by ruff's `I` rules (no separate isort hook). All config in `pyproject.toml`.
 
