@@ -152,3 +152,20 @@
 - `compute_metrics` equity curve with <2 points returns all-None metrics — tests using single-bar curves should not check computed metrics.
 - Lo correction factor < 1.0 requires STRONG positive autocorrelation (phi >= 0.7 in AR(1)) with >=300 returns. With IID returns, factor ≈ 1.0 ± 0.2.
 - `_check_sl_tp` is a module-private function in execution.py — importable for direct unit testing via `from src.app.backtest.application.execution import _check_sl_tp`.
+
+## Files Created (Phase 9C Tests — strategy module, 101 tests)
+- `src/tests/strategy/__init__.py` — empty
+- `src/tests/strategy/conftest.py` — `make_feature_set()`, `_make_ohlcv_base()`, scenario fixtures (trending_up, trending_down, mean_reverting, flat, high_vol, low_vol, mixed_regime)
+- `src/tests/strategy/test_momentum_crossover.py` — name, schema, long/short/flat logic, strength clipping, custom config
+- `src/tests/strategy/test_mean_reversion.py` — name, schema, Hurst gate, BB band logic, synthetic data
+- `src/tests/strategy/test_donchian_breakout.py` — name, schema, long-only constraint, channel logic, shift prevents lookahead, strength
+- `src/tests/strategy/test_volatility_targeting.py` — name, schema, always-long, strength=target/rv clipped
+- `src/tests/strategy/test_no_trade.py` — name, schema, always-flat, PE gate, per-bar low-vol filter
+- `src/tests/strategy/test_signal_diversity.py` — pairwise Jaccard, guaranteed-distinct pairs (VT vs NT), cross-scenario
+
+## Strategy Module Critical Gotchas
+- DonchianBreakout triggers ONLY when `close > rolling_max(shift(1)(high))`. With `high = close + offset` and `close` growing by `step`, breakouts require `step > offset`. The shared `trending_up_feature_set` has `high = close + 200` with `step=100` — close NEVER exceeds the channel. Always craft explicit breakout scenarios for Donchian channel tests.
+- Jaccard similarity for signal diversity: MeanReversion (high Hurst → flat), DonchianBreakout (no breakouts on flat data → flat), and NoTrade (always flat) can all agree 99%+ on many feature sets. Test diversity by comparing only guaranteed-distinct pairs: VolatilityTargeting (all long) vs NoTrade (all flat) → Jaccard=0.0.
+- NoTrade `pe_value > pe_threshold` uses strictly `>` — `pe_value == pe_threshold` does NOT trigger the gate.
+- FeatureSet validators: `n_rows_clean == len(df)` AND `n_rows_clean <= n_rows_raw` AND all feature/target cols must exist in df. Build FeatureSet AFTER adding all required columns.
+- `make_feature_set()` in strategy conftest accepts `xover_values`, `hurst_values`, `atr_values`, `rv_values` as overrides with defaults (0.0, 0.5, 200.0, 0.1).
