@@ -498,7 +498,7 @@ class ProfilingService:
         Returns:
             Filtered Pandas DataFrame ordered by timestamp.
         """
-        date_range: tuple[pd.Timestamp, pd.Timestamp] = (  # type: ignore[assignment]
+        date_range: tuple[pd.Timestamp, pd.Timestamp] = (  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
             partition.feature_selection_start,
             partition.feature_selection_end,
         )

@@ -94,6 +94,21 @@ Timeframe enum only has: H1, H4, D1.
 - ProfilingService loads feature_selection period from DataPartition for data loading
 - README written: src/app/profiling/README.md
 
+### backtest Module (Phase 8) — Confirmed Structure
+- `src/app/backtest/` — domain (value_objects.py, entities.py, protocols.py), application (6 files)
+- No infrastructure layer — no DB, pure computation and simulation
+- `src/tests/backtest/` — 186 tests, flat structure: conftest.py + 7 test files
+  - test_domain.py, test_execution.py, test_metrics.py, test_baselines.py
+  - test_position_sizer.py, test_cost_sweep.py, test_walk_forward.py
+- Domain value objects: Side (LONG/SHORT/FLAT), ExecutionConfig, TradeResult, PortfolioSnapshot
+- Domain entities: Signal, Position, Trade, EquityCurve
+- Domain protocols: IStrategy (on_bar), IPositionSizer (size)
+- Application: ExecutionEngine (next-bar fill), compute_metrics / compute_buy_and_hold_metrics
+  BacktestMetrics, BuyAndHoldStrategy, RandomStrategy, FixedFractionalSizer, RegimeConditionalSizer
+  cost_sweep (grid over commission schedule), WalkForwardRunner (EXPANDING/ROLLING via WindowMode)
+- IStrategyFactory protocol enables per-fold retraining in WalkForwardRunner
+- Lo (2002) formula: SR_AC = SR × √(1 + 2 Σ ρ_k)
+
 ### README Style Decisions
 - No badges (project has no live CI badge URLs)
 - Data flow section as ASCII diagram using boxes and arrows — extend it as new pipeline stages are added

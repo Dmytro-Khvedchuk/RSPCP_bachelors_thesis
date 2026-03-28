@@ -52,7 +52,7 @@ def _fit_single_garch(  # noqa: PLR0913, PLR0917
         returns_pct: pd.Series = returns * 100  # type: ignore[type-arg]
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            am = arch_model(returns_pct, vol="Garch", p=p, q=q, dist=dist, mean="Zero")  # type: ignore[no-untyped-call]
+            am = arch_model(returns_pct, vol="Garch", p=p, q=q, dist=dist, mean="Zero")  # type: ignore[no-untyped-call]  # ty: ignore[invalid-argument-type]
             res = am.fit(disp="off", show_warning=False)  # type: ignore[no-untyped-call]
 
         omega_raw: float = float(res.params["omega"])
@@ -450,7 +450,7 @@ def _get_std_resid(
         returns_pct: pd.Series = returns * 100  # type: ignore[type-arg]
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            am = arch_model(returns_pct, vol="Garch", p=p, q=q, dist=dist, mean="Zero")  # type: ignore[no-untyped-call]
+            am = arch_model(returns_pct, vol="Garch", p=p, q=q, dist=dist, mean="Zero")  # type: ignore[no-untyped-call]  # ty: ignore[invalid-argument-type]
             res = am.fit(disp="off", show_warning=False)  # type: ignore[no-untyped-call]
         return np.asarray(res.std_resid, dtype=np.float64)
     except Exception:
@@ -475,7 +475,7 @@ def _fit_gjr_gamma(
         returns_pct: pd.Series = returns * 100  # type: ignore[type-arg]
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            am = arch_model(returns_pct, vol="GARCH", p=1, o=1, q=1, dist=dist, mean="Zero")  # type: ignore[no-untyped-call]
+            am = arch_model(returns_pct, vol="GARCH", p=1, o=1, q=1, dist=dist, mean="Zero")  # type: ignore[no-untyped-call]  # ty: ignore[invalid-argument-type]
             res = am.fit(disp="off", show_warning=False)  # type: ignore[no-untyped-call]
     except Exception:
         logger.warning("GJR-GARCH fitting failed with dist={}", dist)
