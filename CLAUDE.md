@@ -15,7 +15,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 # Development
 just run                    # Run main.py
-just lint                   # Run all pre-commit hooks (ruff format + ruff lint + pyright)
+just lint                   # Run all pre-commit hooks (ruff format + ruff lint + ty)
 just test                   # Run full test suite (uv run pytest src/tests/)
 just test src/tests/research/  # Run specific test module
 just test -k "test_name"    # Run single test by name
@@ -61,12 +61,12 @@ infrastructure/  # Concrete implementations — depends on domain + external lib
 | `ohlcv/` | ✅ | OHLCV domain entities, repository, service |
 | `ingestion/` | ✅ | Binance API client, ingestion service, CLI (`src/app/ingestion/cli.py`) |
 | `bars/` | ✅ | Lopez de Prado alternative bars (tick, volume, dollar, imbalance, run) + CLI (`src/app/bars/cli.py`) |
-| `research/` | ✅ | RC1 analysis services (coverage, returns, ACF, bar comparison, charts) |
+| `research/` | ✅ | RC1–RC2 analysis services (coverage, returns, ACF, bar comparison, charts) |
 | `features/` | ✅ | Feature engineering (indicators, targets, matrix builder) + validation (MI, BH, DA) |
-| `profiling/` | Phase 5 | Statistical profiling per asset |
-| `backtest/` | Phase 7 | Event-driven backtest engine |
-| `strategy/` | Phase 8 | Base trading strategies |
-| `forecasting/` | Phase 9–10 | Classification + regression models |
+| `profiling/` | ✅ | Statistical profiling per asset (distributions, serial dependence, volatility, stationarity) |
+| `backtest/` | Phase 8 🔧 | Event-driven backtest engine (domain model done, execution + metrics next) |
+| `strategy/` | Phase 9 | Base trading strategies |
+| `forecasting/` | Phase 10–11 | Classification + regression models |
 | `recommendation/` | Phase 12 | ML recommendation system |
 | `evaluation/` | Phase 14 | Monte Carlo, permutation tests, statistical proof |
 
@@ -106,7 +106,7 @@ Tests mirror the source structure under `src/tests/<module>/`. Pytest markers: `
 |-------|------|------|
 | 1 | Formatter | `ruff format` (119 char lines, double quotes) |
 | 2 | Linter | `ruff` (~25 rule categories incl. `D`, `DOC`, `ANN`, `S`, `N`, `PERF`) |
-| 3 | Type checker | `pyright` (strict for `src/`, excludes `src/tests/` and `src/app/research/`) |
+| 3 | Type checker | `ty` (Astral, excludes `src/tests/` and `src/app/research/`) |
 
 Import sorting is handled by ruff's `I` rules (no separate isort hook). All config in `pyproject.toml`.
 
@@ -117,6 +117,7 @@ Import sorting is handled by ruff's `I` rules (no separate isort hook). All conf
 - **All local variables** must have explicit type annotations (project convention, not enforced by linter)
 - No `Any` unless interfacing with untyped third-party libs (comment why)
 - `from __future__ import annotations` in every file
+- Type-ignore comments: use `# type: ignore[rule]` (for pyright compat) AND `# ty: ignore[rule]` side-by-side when suppressing third-party typing issues
 
 ### Docstrings — Google style (enforced by Ruff `D` + `DOC`)
 
@@ -140,16 +141,21 @@ See `pyproject.toml` `[tool.ruff.lint.per-file-ignores]` for the full list. Key 
 7. **Honest evaluation:** Negative results are valid and documented.
 8. **Config-driven:** Every parameter in Pydantic config classes. No magic numbers.
 
-## Current Progress (Phases 1–4 complete)
+## Current Progress (Phases 1–7 complete, Phase 8 in progress)
 
-**RC1 findings** (see `research/RC1_analysis.md`):
-- **Assets:** BTCUSDT, ETHUSDT, LTCUSDT, SOLUSDT (all pass quality filters, >99.9% coverage)
-- **Bar types for Phase 4:** dollar (primary, N=5,286), volume (N=3,264), volume_imbalance (N=530), dollar_imbalance (N=568), time_1h (baseline)
-- **Disqualified:** tick bars (threshold too high, ≤55 bars), run bars (extreme kurtosis 30–43)
+**Completed phases:**
+- **Phase 1:** Data ingestion pipeline (Binance API → DuckDB)
+- **Phase 2:** Alternative bar construction (López de Prado tick/volume/dollar/imbalance/run bars)
+- **Phase 3 (RC1):** Data quality & bar analysis — 4 assets selected (BTCUSDT, ETHUSDT, LTCUSDT, SOLUSDT)
+- **Phase 4:** Feature engineering + validation pipeline (MI, BH correction, DA, DC-MAE, temporal stability)
+- **Phase 5:** Statistical profiling (return distributions, serial dependence, volatility modeling, stationarity)
+- **Phase 6 (RC2):** Features & data adequacy audit — 6 audit gaps identified
+- **Phase 7:** All 6 RC2 audit gaps resolved (cost sensitivity, constant-feature fix, stationarity policy, MI normalization, LTCUSDT volume-bar profiling, SOLUSDT tier-B protocol). See `research/RC7_analysis.md`.
 
-**Phase 4 complete:** Feature engineering (indicators, targets, matrix builder) + validation pipeline (MI permutation tests, Benjamini-Hochberg correction, directional accuracy, DC-MAE, temporal stability). See `4d_report.md` for validation review.
-
-- **Next:** Phase 5 (Statistical Profiling)
+**Phase 8 (in progress):** Backtest engine
+- **8A done:** Domain model (`backtest/domain/`) — `Side`, `ExecutionConfig`, `TradeResult`, `PortfolioSnapshot`, `Signal`, `Position`, `Trade`, `EquityCurve`, `IStrategy`, `IPositionSizer`
+- **8B next:** Execution layer (fill on next bar open, cost sweep)
+- **8C next:** Metrics layer (Sharpe with Lo 2002 correction, drawdown, trade stats)
 
 ## What NOT to Do
 

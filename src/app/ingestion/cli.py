@@ -120,7 +120,7 @@ def _build_service(cm: ConnectionManager) -> IngestionService:
     Returns:
         A fully wired :class:`IngestionService` ready to execute ingestion commands.
     """
-    settings: BinanceSettings = BinanceSettings()  # type: ignore[call-arg]  # populated from env
+    settings: BinanceSettings = BinanceSettings()  # type: ignore[call-arg]  # ty: ignore[missing-argument]  # populated from env
     fetcher: BinanceFetcher = BinanceFetcher(settings)
     repository: DuckDBOHLCVRepository = DuckDBOHLCVRepository(cm)
     return IngestionService(fetcher=fetcher, repository=repository)

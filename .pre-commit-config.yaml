@@ -15,12 +15,11 @@ repos:
           - --fix
           - --config=pyproject.toml
 
-  - repo: https://github.com/RobertCraigie/pyright-python
-    rev: v1.1.408
+  - repo: local
     hooks:
-      - id: pyright
-        name: Type checker (pyright)
-        language: python
-        require_serial: true
-        args:
-          - --project=pyproject.toml
+      - id: ty
+        name: Type checker (ty)
+        entry: uv run ty check src/ --exclude src/tests/** --exclude src/app/research/**
+        language: system
+        pass_filenames: false
+        types: [python]

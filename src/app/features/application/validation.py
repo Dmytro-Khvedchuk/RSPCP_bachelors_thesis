@@ -383,7 +383,7 @@ def _assemble_report(  # noqa: PLR0913, PLR0914, PLR0917
         for i, result in enumerate(feature_results):
             if i in top_indices and not result.keep:
                 rebuilt.append(
-                    FeatureValidationResult(**{**result.model_dump(), "keep": True}),
+                    FeatureValidationResult(**{**result.model_dump(), "keep": True}),  # ty: ignore[invalid-argument-type]
                 )
             else:
                 rebuilt.append(result)

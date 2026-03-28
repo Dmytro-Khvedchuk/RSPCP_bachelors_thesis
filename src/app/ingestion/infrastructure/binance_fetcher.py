@@ -197,7 +197,7 @@ class BinanceFetcher:
             BinanceAPIException: On other Binance API errors (retryable).
         """
         try:
-            result: list[list[Any]] = self._client.get_klines(  # type: ignore[assignment]
+            result: list[list[Any]] = self._client.get_klines(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
                 symbol=symbol,
                 interval=interval.value,
                 startTime=start_time,
