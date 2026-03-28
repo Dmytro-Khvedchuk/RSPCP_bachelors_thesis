@@ -1,1 +1,1 @@
-"""Backtest application layer — execution engine, position sizing, cost sweep."""
+"""Backtest application layer — execution engine, position sizing, cost sweep, baselines."""
