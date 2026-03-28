@@ -1,1 +1,1 @@
-"""Backtest application layer — execution engine, position sizing, cost sweep, baselines."""
+"""Backtest application layer — execution engine, metrics, walk-forward evaluation."""
