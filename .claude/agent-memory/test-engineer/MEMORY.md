@@ -131,3 +131,24 @@
 - `N806` (uppercase variable names) fires in test methods even for named constants — use lowercase names (e.g. `tolerance`, `h_norm_max`, not `TOLERANCE`)
 - GARCH on constant (all-zero) series: the optimizer either fails (garch_fits is None) OR converges to degenerate values — test must handle both cases
 - KPSS p-value is bounded/clamped to [0, 1] in the screener; random walk reliably gives kpss_pvalue < 0.05 (n=1000, seed=42 confirmed)
+
+## Files Created (Phase 8F Tests — backtest module, 147 tests)
+- `src/tests/backtest/__init__.py`
+- `src/tests/backtest/conftest.py` — `make_bars()`, `make_snapshot()`, `AlwaysLongStrategy`, `NeverTradeStrategy`, `SingleSignalStrategy`, `FixedNotionalSizer`
+- `src/tests/backtest/test_domain.py` — Side, ExecutionConfig, TradeResult, PortfolioSnapshot, Signal, Position, Trade, EquityCurve
+- `src/tests/backtest/test_position_sizer.py` — FixedFractionalSizer, RegimeConditionalSizer (parametrized known values)
+- `src/tests/backtest/test_execution.py` — commission formula, fill-on-next-open, SL/TP logic, staleness, edge cases, equity curve manual verification
+- `src/tests/backtest/test_metrics.py` — total return, max drawdown, Sharpe, Lo correction, trade stats, buy-and-hold
+- `src/tests/backtest/test_baselines.py` — BuyAndHoldStrategy (first-bar only), RandomStrategy (seed, frequency, both sides)
+- `src/tests/backtest/test_walk_forward.py` — expanding/rolling modes, equity chaining, no-lookahead, insufficient bars error
+- `src/tests/backtest/test_cost_sweep.py` — fee-level sweep, economics, base_config inheritance
+
+## Backtest Module Critical Gotchas
+- Trade validator: `exit_time > entry_time` STRICTLY — if position opens and is liquidated at the same timestamp the Trade construction raises ValidationError. Ensure at least N+2 bars when signal emits at bar[0], fills at bar[1], liquidates at bar[N+1].
+- `AlwaysLongStrategy` MUST check `portfolio.positions` before emitting — if it always emits, the engine overwrites the existing same-side position and opens a new one at the last bar, causing entry_time==exit_time on liquidation.
+- `_annualized_return` raises OverflowError when duration is sub-hour (exponent = 365.25/days is enormous). Use DAILY intervals in equity curves for metrics tests, not hourly.
+- Cost sweep tests with shared `SingleSignalStrategy` instance: the strategy's `_call_count` persists across fee-level runs so only the first run sees any signal. Use stateless `AlwaysLongStrategy` or instantiate a fresh strategy per fee level.
+- `N814` ruff error: importing CamelCase class with underscore alias (e.g. `ExecutionEngine as _EE`) — keep the import at top-level without renaming.
+- `compute_metrics` equity curve with <2 points returns all-None metrics — tests using single-bar curves should not check computed metrics.
+- Lo correction factor < 1.0 requires STRONG positive autocorrelation (phi >= 0.7 in AR(1)) with >=300 returns. With IID returns, factor ≈ 1.0 ± 0.2.
+- `_check_sl_tp` is a module-private function in execution.py — importable for direct unit testing via `from src.app.backtest.application.execution import _check_sl_tp`.

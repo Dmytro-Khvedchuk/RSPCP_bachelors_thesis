@@ -13,13 +13,14 @@ into a trained recommendation system that selects which trading signals to act o
 framework is statistically rigorous: walk-forward cross-validation, Monte Carlo permutation tests,
 and deflated Sharpe ratios guard against overfitting.
 
-**Current state:** Phases 1–7 complete — OHLCV ingestion, López de Prado alternative bars,
+**Current state:** Phases 1–8 complete — OHLCV ingestion, López de Prado alternative bars,
 RC1 research checkpoint, full feature engineering pipeline (21 indicators after Phase 7 audit,
 regression targets, feature matrix builder, and permutation-test validation), statistical
 profiling (distribution, serial dependence, volatility modeling, predictability assessment),
-and RC2 profiling closure (6 audit gaps resolved: feature degeneracy audit, stationarity
-policy, MI normalization, LTCUSDT/volume Tier A confirmation, conditional break-even DA,
-Tier B protocol for SOLUSDT).
+RC2 profiling closure (6 audit gaps resolved), and a complete event-driven backtest engine
+(domain model, execution layer with next-bar fill semantics, Lo 2002 corrected metrics,
+BuyAndHold + Random baselines, and walk-forward runner with expanding/rolling windows).
+1,429 tests passing. Phase 9 (Base Trading Strategies) is next.
 
 ---
 
@@ -48,9 +49,9 @@ dependencies between layers. All data classes use Pydantic `BaseModel` — no ra
 | 4 | `features/` | Technical indicators, regression targets, matrix builder, validation | Done |
 | 5 | `profiling/` | Statistical profiling per asset | Done |
 | 6–7 | (research) | RC2 profiling closure — 6 audit gaps, stationarity policy, Tier B protocol | Done |
-| 8 | `backtest/` | Event-driven backtest engine | Planned |
-| 8 | `strategy/` | Momentum, DRTS, mean-reversion strategies | Planned |
-| 9–10 | `forecasting/` | Classification (SIDE) + regression (SIZE) | Planned |
+| 8 | `backtest/` | Event-driven backtest engine | Done |
+| 9 | `strategy/` | Momentum, DRTS, mean-reversion strategies | Next |
+| 10–11 | `forecasting/` | Classification (SIDE) + regression (SIZE) | Planned |
 | 12 | `recommendation/` | ML recommendation system (meta-labeling) | Planned |
 | 14 | `evaluation/` | Monte Carlo, PBO, DSR, MCS | Planned |
 | 16 | `live/` | Live paper trading engine | Planned |
@@ -78,6 +79,11 @@ RSPCP_bachelors_thesis/
 │   │   │   │                    # PredictabilityProfile, StationarityReport, StatisticalReport
 │   │   │   └── application/     # distribution.py, serial_dependence.py, volatility.py,
 │   │   │                        # predictability.py, stationarity.py, services.py
+│   │   ├── backtest/            # Phase 8 — event-driven backtest engine
+│   │   │   ├── domain/          # Side, ExecutionConfig, TradeResult, PortfolioSnapshot,
+│   │   │   │                    # Signal, Position, Trade, EquityCurve, IStrategy, IPositionSizer
+│   │   │   └── application/     # ExecutionEngine, metrics.py, baselines.py, position_sizer.py,
+│   │   │                        # cost_sweep.py, walk_forward.py
 │   │   ├── ingestion/           # Phase 1 — Binance OHLCV ingestion
 │   │   │   ├── domain/          # BinanceKlineInterval, FetchRequest, exceptions, IMarketDataFetcher
 │   │   │   ├── application/     # IngestionService, IngestAssetCommand, IngestUniverseCommand
@@ -92,6 +98,8 @@ RSPCP_bachelors_thesis/
 │   │       └── database/        # ConnectionManager, DatabaseSettings, BaseRepository, Alembic
 │   └── tests/
 │       ├── conftest.py          # Shared factories: make_asset, make_date_range, make_candle
+│       ├── backtest/            # 186 tests — domain, execution, metrics, baselines,
+│       │                        # position sizer, cost sweep, walk-forward
 │       ├── bars/                # 260 tests — domain, application, infrastructure, statistical
 │       ├── features/            # 195 tests — indicators, targets, matrix, validation, leakage
 │       ├── profiling/           # 188 tests — distribution, serial dependence, volatility,
@@ -449,6 +457,68 @@ object stores both the raw and corrected p-value with pre/post-correction signif
 
 ---
 
+## Backtest Module — Technical Detail
+
+Implements Phase 8: a self-contained event-driven backtest engine with no external
+simulation frameworks. Two complementary baseline strategies (BuyAndHold, Random) and a
+walk-forward runner cover the full evaluation path from domain model through to fold-level
+metrics.
+
+### Domain model
+
+| Component | Layer | Purpose |
+|-----------|-------|---------|
+| `Side` | domain | `LONG / SHORT / FLAT` enum |
+| `ExecutionConfig` | domain | Frozen config: commission rate, slippage, initial capital |
+| `TradeResult` | domain | Immutable closed-trade record: entry/exit price, side, PnL, return |
+| `PortfolioSnapshot` | domain | Per-bar equity, cash, position value, drawdown |
+| `Signal` | domain | Timestamped trading signal: asset, side, size hint |
+| `Position` | domain | Open position: entry price, side, quantity, unrealised PnL |
+| `Trade` | domain | In-flight trade; converts to `TradeResult` on close |
+| `EquityCurve` | domain | Time-indexed equity series with peak-tracking for drawdown |
+| `IStrategy` | domain | `typing.Protocol` — `on_bar(bar, position) → Signal \| None` |
+| `IPositionSizer` | domain | `typing.Protocol` — `size(signal, equity, bar) → float` |
+
+### Application layer
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| `ExecutionEngine` | `execution.py` | Next-bar fill; applies commission + slippage; returns `BacktestResult` |
+| `compute_metrics` | `metrics.py` | Lo (2002) AC-corrected Sharpe, max drawdown, Calmar, win rate, avg trade |
+| `compute_buy_and_hold_metrics` | `metrics.py` | Absolute-floor baseline metrics on raw bar returns |
+| `BuyAndHoldStrategy` | `baselines.py` | Enters long on first bar and holds — unconditional floor |
+| `RandomStrategy` | `baselines.py` | Random long/flat signals — White (2000) null hypothesis |
+| `FixedFractionalSizer` | `position_sizer.py` | Sizes by fixed fraction of equity |
+| `RegimeConditionalSizer` | `position_sizer.py` | Scales fraction by volatility regime label |
+| `cost_sweep` | `cost_sweep.py` | Grid-evaluates `BacktestMetrics` across a commission schedule |
+| `WalkForwardRunner` | `walk_forward.py` | Expanding/rolling windows; chains equity across folds |
+
+### Metrics
+
+`compute_metrics()` returns a `BacktestMetrics` value object with:
+
+- **Sharpe ratio** — annualised, autocorrelation-corrected per Lo (2002): `SR_AC = SR × √(1 + 2 Σ ρ_k)`
+- **Max drawdown** — peak-to-trough percentage from the `EquityCurve`
+- **Calmar ratio** — annualised return / max drawdown
+- **Win rate** — fraction of `TradeResult` records with positive PnL
+- **Average trade return** — mean `TradeResult.pnl_pct`
+- **Total PnL** — sum of all closed-trade PnL in quote currency
+
+### Walk-forward modes
+
+`WalkForwardRunner` supports two window modes via `WindowMode`:
+
+| Mode | Train window grows? | Use case |
+|------|---------------------|----------|
+| `EXPANDING` | Yes — all history up to fold start | Sufficient data; no retraining cost |
+| `ROLLING` | No — fixed lookback window | Regime-aware; prevents concept drift |
+
+The runner receives an `IStrategyFactory` protocol instance that constructs a fresh strategy
+per fold, enabling training-dependent strategies (classifiers, regressors) to be retrained
+on each fold's training slice before evaluation on the test slice.
+
+---
+
 ## CI/CD
 
 Two GitHub Actions workflows run on pull requests to `main`:
@@ -586,6 +656,25 @@ ProfilingService.profile_all(assets, config, partition)
       │  (tier classification, 5 analyzers per asset-bar pair, BH FDR correction)
       ▼
 StatisticalReport   ←── AssetBarProfile per (asset, bar_type), corrected p-values
+      │
+      ▼
+ExecutionEngine.run(signals, bars, config, sizer)
+      │  (next-bar fill, commission + slippage, FixedFractional / RegimeConditional sizing)
+      ▼
+BacktestResult   ←── EquityCurve, list[Trade], list[PortfolioSnapshot]
+      │
+      ▼
+compute_metrics(result)                           compute_buy_and_hold_metrics(bars)
+      │  (Lo 2002 AC-corrected Sharpe, max DD,          │  (absolute-floor baseline)
+      │   Calmar, win rate, avg trade, PnL)             │
+      ▼                                                 ▼
+BacktestMetrics   ←── paired with BuyAndHoldStrategy / RandomStrategy baselines
+      │
+      ▼
+WalkForwardRunner.run(factory, bars, config)
+      │  (expanding / rolling windows, equity chaining, IStrategyFactory per fold)
+      ▼
+WalkForwardResult   ←── per-fold WindowResult, combined EquityCurve, aggregate metrics
 ```
 
 ---
@@ -596,7 +685,7 @@ The full plan is in [`IMPLEMENTATION_PLAN.md`](./IMPLEMENTATION_PLAN.md). Summar
 
 **Block I — Data & Infrastructure (Phases 1–8)**
 
-Ingestion → alternative bars → RC1 → features → profiling → RC2 closure ✓ → backtest engine → strategies
+Ingestion → alternative bars → RC1 → features → profiling → RC2 closure ✓ → backtest engine ✓ → strategies
 
 **Block II — Models & Recommendation (Phases 9–14)**
 
