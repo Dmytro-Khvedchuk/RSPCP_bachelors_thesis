@@ -279,11 +279,16 @@ def make_small_target_config(**overrides: object) -> TargetConfig:
         **overrides: Additional keyword arguments forwarded to TargetConfig.
 
     Returns:
-        TargetConfig with horizons (1, 4) for returns and (2, 4) for vol.
+        TargetConfig with horizons (1, 4) for returns, (2, 4) for vol,
+        (1, 4) for z-returns, backward_vol_window=5, and winsorize=False
+        by default (to keep existing tests deterministic).
     """
     defaults: dict[str, object] = {
         "forward_return_horizons": (1, 4),
         "forward_vol_horizons": (2, 4),
+        "forward_zret_horizons": (1, 4),
+        "backward_vol_window": 5,
+        "winsorize": False,
     }
     defaults.update(overrides)
     return TargetConfig(**defaults)  # type: ignore[arg-type]
