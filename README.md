@@ -13,16 +13,19 @@ into a trained recommendation system that selects which trading signals to act o
 framework is statistically rigorous: walk-forward cross-validation, Monte Carlo permutation tests,
 and deflated Sharpe ratios guard against overfitting.
 
-**Current state:** Phases 1–9 complete — OHLCV ingestion, López de Prado alternative bars,
+**Current state:** Phases 1–10 complete — OHLCV ingestion, López de Prado alternative bars,
 RC1 research checkpoint, full feature engineering pipeline (21 indicators after Phase 7 audit,
 regression targets, feature matrix builder, and permutation-test validation), statistical
 profiling (distribution, serial dependence, volatility modeling, predictability assessment),
 RC2 profiling closure (6 audit gaps resolved), a complete event-driven backtest engine
 (domain model, execution layer with next-bar fill semantics, Lo 2002 corrected metrics,
-BuyAndHold + Random baselines, and walk-forward runner with expanding/rolling windows), and
+BuyAndHold + Random baselines, and walk-forward runner with expanding/rolling windows),
 5 batch trading strategies (momentum crossover, mean reversion, Donchian breakout,
-volatility targeting, no-trade). 1,530 tests passing. Phase 10-pre (Ensemble DA Gating Test)
-is next.
+volatility targeting, no-trade), and the return regression forecasting track — 3 return
+regressors (Ridge baseline, LightGBM quantile with isotonic correction, GRU + MC Dropout),
+2 volatility forecasters (HAR-RV, ARIMA-GARCH(1,1)), ACI conformal prediction calibration,
+and standalone regression metrics (MAE, RMSE, R², CRPS, QLIKE, Mincer-Zarnowitz R²).
+1,758 tests passing. Phase 11 (Direction Classification / SIDE track) is next.
 
 ---
 
@@ -53,7 +56,8 @@ dependencies between layers. All data classes use Pydantic `BaseModel` — no ra
 | 6–7 | (research) | RC2 profiling closure — 6 audit gaps, stationarity policy, Tier B protocol | Done |
 | 8 | `backtest/` | Event-driven backtest engine | Done |
 | 9 | `strategy/` | 5 batch strategies (momentum, mean-reversion, breakout, vol-targeting, no-trade) | Done |
-| 10–11 | `forecasting/` | Classification (SIDE) + regression (SIZE) | Next |
+| 10 | `forecasting/` | Return regression (SIZE) — Ridge, LightGBM quantile, GRU+MC Dropout, HAR-RV, ARIMA-GARCH, ACI calibration | Done |
+| 11 | `forecasting/` | Direction classification (SIDE) | Next |
 | 12 | `recommendation/` | ML recommendation system (meta-labeling) | Planned |
 | 14 | `evaluation/` | Monte Carlo, PBO, DSR, MCS | Planned |
 | 16 | `live/` | Live paper trading engine | Planned |
@@ -90,6 +94,11 @@ RSPCP_bachelors_thesis/
 │   │   │   ├── domain/          # IStrategy protocol (batch signal generation)
 │   │   │   └── application/     # MomentumCrossover, MeanReversion, DonchianBreakout,
 │   │   │                        # VolatilityTargeting, NoTrade
+│   │   ├── forecasting/         # Phase 10 — return regression + volatility forecasting
+│   │   │   ├── domain/          # ForecastResult, QuantileForecast, VolatilityForecast,
+│   │   │   │                    # IRegressor, IVolatilityForecaster, ICalibrator
+│   │   │   └── application/     # Ridge, LightGBM quantile, GRU+MC Dropout, HAR-RV,
+│   │   │                        # ARIMA-GARCH, calibration (ACI), regression metrics
 │   │   ├── ingestion/           # Phase 1 — Binance OHLCV ingestion
 │   │   │   ├── domain/          # BinanceKlineInterval, FetchRequest, exceptions, IMarketDataFetcher
 │   │   │   ├── application/     # IngestionService, IngestAssetCommand, IngestUniverseCommand
@@ -107,6 +116,8 @@ RSPCP_bachelors_thesis/
 │       ├── backtest/            # 186 tests — domain, execution, metrics, baselines,
 │       │                        # position sizer, cost sweep, walk-forward
 │       ├── strategy/            # 101 tests — all 5 strategies, signal diversity (Jaccard)
+│       ├── forecasting/         # 228 tests — ridge, LightGBM, GRU, HAR-RV, GARCH,
+│       │                        # calibration, regression metrics, value objects
 │       ├── bars/                # 260 tests — domain, application, infrastructure, statistical
 │       ├── features/            # 195 tests — indicators, targets, matrix, validation, leakage
 │       ├── profiling/           # 188 tests — distribution, serial dependence, volatility,
