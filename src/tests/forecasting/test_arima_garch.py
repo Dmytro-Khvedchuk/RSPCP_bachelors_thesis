@@ -140,3 +140,95 @@ class TestARIMAGARCHForecaster:
         assert forecast.predicted_vol.shape == (3,)
         assert np.all(forecast.predicted_var > 0)
         assert not np.any(np.isnan(forecast.predicted_var))
+
+    def test_garch_r_squared_on_synthetic_data(
+        self,
+        garch_config: GARCHConfig,
+    ) -> None:
+        """In-sample conditional variance should explain smoothed realized variance.
+
+        Required by acceptance criterion 10E: GARCH R^2 > 0.5 on synthetic
+        GARCH returns where the true DGP is known.
+
+        We use the ``arch`` library to simulate a GARCH(1,1) process so we have
+        access to the **true** conditional variance path.  The fitted model's
+        conditional variance should closely track this truth, yielding R^2 > 0.5.
+        """
+        from arch import arch_model
+
+        np.random.seed(42)  # noqa: NPY002
+        am = arch_model(None, mean="Zero", vol="GARCH", p=1, q=1)
+        params: np.ndarray[tuple[int], np.dtype[np.float64]] = np.array([0.01, 0.05, 0.90])
+        sim = am.simulate(params, nobs=1000)
+
+        returns: np.ndarray[tuple[int], np.dtype[np.float64]] = sim["data"].values.astype(np.float64)
+        true_variance: np.ndarray[tuple[int], np.dtype[np.float64]] = sim["volatility"].values.astype(np.float64) ** 2
+
+        model: ARIMAGARCHForecaster = ARIMAGARCHForecaster(garch_config)
+        model.fit(returns)
+
+        # Extract in-sample conditional variance from the fitted model
+        assert model._result is not None
+        cond_vol: np.ndarray[tuple[int], np.dtype[np.float64]] = np.asarray(
+            model._result.conditional_volatility, dtype=np.float64
+        )
+        fitted_var: np.ndarray[tuple[int], np.dtype[np.float64]] = (cond_vol**2).astype(np.float64)
+
+        # Undo rescale (the model scales returns by 100, so variance by 100^2)
+        fitted_var /= model._scale**2
+
+        # Align lengths
+        n: int = min(len(fitted_var), len(true_variance))
+        true_var_aligned: np.ndarray[tuple[int], np.dtype[np.float64]] = true_variance[:n]
+        fitted_var_aligned: np.ndarray[tuple[int], np.dtype[np.float64]] = fitted_var[:n]
+
+        # Compute R-squared of fitted vs true conditional variance
+        ss_res: float = float(np.sum((true_var_aligned - fitted_var_aligned) ** 2))
+        ss_tot: float = float(np.sum((true_var_aligned - np.mean(true_var_aligned)) ** 2))
+        r_squared: float = 1.0 - ss_res / ss_tot if ss_tot > 1e-12 else 0.0
+
+        # On synthetic GARCH data with known DGP, fitted variance should track
+        # the true variance closely: R^2 > 0.5
+        assert r_squared > 0.5, f"GARCH R²={r_squared:.4f} too low on synthetic data with known DGP"
+
+    def test_garch_zero_n_steps_raises(
+        self,
+        garch_returns: np.ndarray[tuple[int], np.dtype[np.float64]],
+        garch_config: GARCHConfig,
+    ) -> None:
+        """predict(n_steps=0) should raise ValueError."""
+        model: ARIMAGARCHForecaster = ARIMAGARCHForecaster(garch_config)
+        model.fit(garch_returns)
+
+        with pytest.raises(ValueError, match="n_steps must be >= 1"):
+            model.predict(0)
+
+    def test_garch_normal_distribution_works(
+        self,
+        garch_returns: np.ndarray[tuple[int], np.dtype[np.float64]],
+    ) -> None:
+        """Fitting with dist='normal' should succeed and produce valid forecasts."""
+        config: GARCHConfig = make_garch_config(dist="normal")
+        model: ARIMAGARCHForecaster = ARIMAGARCHForecaster(config)
+        model.fit(garch_returns)
+
+        forecast: VolatilityForecast = model.predict(5)
+
+        assert forecast.predicted_vol.shape == (5,)
+        assert np.all(forecast.predicted_var > 0)
+        assert not np.any(np.isnan(forecast.predicted_var))
+
+    def test_garch_ar_mean_model(
+        self,
+        garch_returns: np.ndarray[tuple[int], np.dtype[np.float64]],
+    ) -> None:
+        """Fitting with mean_model='AR' should succeed (different code path with lags)."""
+        config: GARCHConfig = make_garch_config(mean_model="AR", ar_order=1)
+        model: ARIMAGARCHForecaster = ARIMAGARCHForecaster(config)
+        model.fit(garch_returns)
+
+        forecast: VolatilityForecast = model.predict(5)
+
+        assert forecast.predicted_vol.shape == (5,)
+        assert np.all(forecast.predicted_var > 0)
+        assert not np.any(np.isnan(forecast.predicted_var))
