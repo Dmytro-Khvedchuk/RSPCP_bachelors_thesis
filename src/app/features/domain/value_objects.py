@@ -165,7 +165,10 @@ class TargetConfig(BaseModel, frozen=True):
         * ``forward_return_horizons`` must be non-empty with all values >= 1.
         * ``forward_vol_horizons`` must have all values >= 2
           (rolling std requires at least 2 observations).
-        * No duplicate values in either horizon tuple.
+        * ``forward_zret_horizons`` must have all values >= 1.
+        * ``backward_vol_window`` must be >= 2 (rolling std requirement).
+        * Winsorization percentiles must satisfy 0 < lower < upper < 1.
+        * No duplicate values in any horizon tuple.
     """
 
     forward_return_horizons: tuple[int, ...] = (1, 4, 24)
@@ -173,6 +176,41 @@ class TargetConfig(BaseModel, frozen=True):
 
     forward_vol_horizons: tuple[int, ...] = (4, 24)
     """Bar-count horizons for forward realized volatility."""
+
+    forward_zret_horizons: tuple[int, ...] = (1, 4, 24)
+    """Bar-count horizons for forward volatility-normalized returns."""
+
+    backward_vol_window: Annotated[
+        int,
+        PydanticField(
+            default=24,
+            ge=2,
+            description="Backward-looking vol window for z-return denominator",
+        ),
+    ]
+
+    winsorize: bool = True
+    """Whether to apply winsorization to all target columns."""
+
+    winsorize_lower_pct: Annotated[
+        float,
+        PydanticField(
+            default=0.01,
+            gt=0,
+            lt=1,
+            description="Lower percentile for winsorization",
+        ),
+    ]
+
+    winsorize_upper_pct: Annotated[
+        float,
+        PydanticField(
+            default=0.99,
+            gt=0,
+            lt=1,
+            description="Upper percentile for winsorization",
+        ),
+    ]
 
     close_col: str = "close"
     """Configurable close column name."""
@@ -224,6 +262,46 @@ class TargetConfig(BaseModel, frozen=True):
             msg = f"forward_vol_horizons must not contain duplicates, got {v}"
             raise ValueError(msg)
         return v
+
+    @field_validator("forward_zret_horizons")
+    @classmethod
+    def _validate_zret_horizons(cls, v: tuple[int, ...]) -> tuple[int, ...]:
+        """Validate forward z-return horizons are positive and unique.
+
+        Args:
+            v: Tuple of horizon values.
+
+        Returns:
+            Validated tuple.
+
+        Raises:
+            ValueError: If any value < 1 or there are duplicates.
+        """
+        if any(h < 1 for h in v):
+            msg: str = f"All forward_zret_horizons must be >= 1, got {v}"
+            raise ValueError(msg)
+        if len(v) != len(set(v)):
+            msg = f"forward_zret_horizons must not contain duplicates, got {v}"
+            raise ValueError(msg)
+        return v
+
+    @model_validator(mode="after")
+    def _winsorize_bounds_ordered(self) -> Self:
+        """Ensure winsorize_lower_pct is strictly less than winsorize_upper_pct.
+
+        Returns:
+            Validated instance.
+
+        Raises:
+            ValueError: If ``winsorize_lower_pct >= winsorize_upper_pct``.
+        """
+        if self.winsorize_lower_pct >= self.winsorize_upper_pct:
+            msg: str = (
+                f"winsorize_lower_pct ({self.winsorize_lower_pct}) "
+                f"must be strictly less than winsorize_upper_pct ({self.winsorize_upper_pct})"
+            )
+            raise ValueError(msg)
+        return self
 
 
 _DEFAULT_FEATURE_GROUPS: dict[str, tuple[str, ...]] = {
