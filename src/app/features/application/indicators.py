@@ -195,7 +195,7 @@ def atr(
     r"""Compute Average True Range (ATR).
 
     Uses Wilder's smoothing by default
-    (:math:`\alpha = 1 / \text{period}`).  Falls back to simple rolling
+    ($\alpha = 1 / \text{period}$).  Falls back to simple rolling
     mean when ``wilder=False``.
 
     Args:
@@ -284,13 +284,11 @@ def rsi(
 ) -> pl.Expr:
     r"""Compute Wilder's Relative Strength Index (RSI).
 
-    .. math::
+    $$RSI = 100 - \frac{100}{1 + RS},\quad
+    RS = \frac{\text{EWM}(\text{gains},\alpha=1/p)}
+               {\text{EWM}(\text{losses},\alpha=1/p) + \varepsilon}$$
 
-        RSI = 100 - \frac{100}{1 + RS},\quad
-        RS = \frac{\text{EWM}(\text{gains},\alpha=1/p)}
-                   {\text{EWM}(\text{losses},\alpha=1/p) + \varepsilon}
-
-    Uses Wilder's smoothing (:math:`\alpha = 1 / \text{period}`) for
+    Uses Wilder's smoothing ($\alpha = 1 / \text{period}$) for
     consistency with the standard RSI definition.
 
     Args:
@@ -330,7 +328,7 @@ def roc(expr: pl.Expr, period: int) -> pl.Expr:
 def rolling_slope(expr: pl.Expr, window: int) -> pl.Expr:
     r"""Compute rolling ordinary-least-squares slope.
 
-    Fits :math:`y = a x + b` where :math:`x = [0, 1, \ldots, w-1]`
+    Fits $y = a x + b$ where $x = [0, 1, \ldots, w-1]$
     inside each rolling window and returns the slope coefficient *a*.
 
     Note:
@@ -395,11 +393,9 @@ def obv_slope(
 
     OBV is a cumulative indicator:
 
-    .. math::
+    $$OBV_t = OBV_{t-1} + V_t \cdot \text{sign}(\Delta C_t)$$
 
-        OBV_t = OBV_{t-1} + V_t \cdot \text{sign}(\Delta C_t)
-
-    where :math:`\Delta C_t = C_t - C_{t-1}`.  The function computes
+    where $\Delta C_t = C_t - C_{t-1}$.  The function computes
     OBV as a cumulative sum, then fits a rolling linear regression slope
     to capture the OBV trend direction and magnitude.
 
@@ -424,13 +420,11 @@ def amihud_illiquidity(
 ) -> pl.Expr:
     r"""Compute Amihud illiquidity ratio.
 
-    .. math::
+    $$\text{ILLIQ}_t = \frac{1}{N}\sum_{i=t-N+1}^{t}
+    \frac{|r_i|}{\text{DollarVolume}_i + \varepsilon}$$
 
-        \text{ILLIQ}_t = \frac{1}{N}\sum_{i=t-N+1}^{t}
-        \frac{|r_i|}{\text{DollarVolume}_i + \varepsilon}
-
-    where :math:`r_i` is the 1-bar log return and
-    :math:`\text{DollarVolume}_i = C_i \times V_i`.
+    where $r_i$ is the 1-bar log return and
+    $\text{DollarVolume}_i = C_i \times V_i$.
 
     Reference:
         Amihud (2002), "Illiquidity and stock returns:
@@ -480,7 +474,7 @@ def _hurst_rs(values: pl.Series) -> float:
 
     This is a ``rolling_map`` callback operating on a single window.
     The R/S method splits the window into sub-ranges of increasing
-    size and regresses :math:`\ln(R/S)` against :math:`\ln(n)`.
+    size and regresses $\ln(R/S)$ against $\ln(n)$.
 
     Args:
         values: A Polars Series slice from the rolling window.
@@ -533,14 +527,12 @@ def _hurst_rs(values: pl.Series) -> float:
 def rolling_hurst(window: int, *, close_col: str = "close") -> pl.Expr:
     r"""Compute rolling Hurst exponent via rescaled-range (R/S) analysis.
 
-    .. math::
-
-        H \approx \frac{\partial \ln(R/S)}{\partial \ln(n)}
+    $$H \approx \frac{\partial \ln(R/S)}{\partial \ln(n)}$$
 
     Interpretation:
-        - :math:`H \approx 0.5` -- random walk (no memory).
-        - :math:`H > 0.5` -- trending / persistent behaviour.
-        - :math:`H < 0.5` -- mean-reverting / anti-persistent behaviour.
+        - $H \approx 0.5$ -- random walk (no memory).
+        - $H > 0.5$ -- trending / persistent behaviour.
+        - $H < 0.5$ -- mean-reverting / anti-persistent behaviour.
 
     Note:
         Uses ``rolling_map`` with a NumPy callback.  The default window
@@ -647,10 +639,8 @@ def bollinger_width(
 def zscore_rolling(expr: pl.Expr, window: int) -> pl.Expr:
     r"""Compute rolling z-score.
 
-    .. math::
-
-        z_t = \frac{x_t - \bar{x}_{\text{window}}}
-                    {\sigma_{x,\text{window}} + \varepsilon}
+    $$z_t = \frac{x_t - \bar{x}_{\text{window}}}
+                {\sigma_{x,\text{window}} + \varepsilon}$$
 
     Args:
         expr: Input expression.

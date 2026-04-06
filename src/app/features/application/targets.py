@@ -41,15 +41,13 @@ TARGET_PREFIX: Final[str] = "fwd_"
 def forward_log_return(close: pl.Expr, horizon: int) -> pl.Expr:
     r"""Compute forward log return at a given horizon.
 
-    .. math::
-
-        r^{\text{fwd}}_t = \ln\!\left(\frac{C_{t+h}}{C_t}\right)
+    $$r^{\text{fwd}}_t = \ln\!\left(\frac{C_{t+h}}{C_t}\right)$$
 
     The last *horizon* rows will be null because no future data is
     available.
 
     Note:
-        This is computed directly rather than reusing :func:`log_return`
+        This is computed directly rather than reusing `log_return`
         because the shift direction is reversed (negative shift =
         future data) and reusing would invite sign-confusion bugs.
 
@@ -72,14 +70,12 @@ def forward_volatility(close: pl.Expr, horizon: int) -> pl.Expr:
     r"""Compute forward realized volatility at a given horizon.
 
     Methodology:
-        1. Compute 1-bar log returns: :math:`r_t = \ln(C_t / C_{t-1})`
+        1. Compute 1-bar log returns: $r_t = \ln(C_t / C_{t-1})$
         2. Rolling standard deviation over *horizon* bars
         3. Shift by ``-horizon`` so the value at row *t* reflects the
-           volatility of returns from :math:`[t+1, \ldots, t+h]`
+           volatility of returns from $[t+1, \ldots, t+h]$
 
-    .. math::
-
-        \sigma^{\text{fwd}}_t = \text{std}(r_{t+1}, \ldots, r_{t+h})
+    $$\sigma^{\text{fwd}}_t = \text{std}(r_{t+1}, \ldots, r_{t+h})$$
 
     The last *horizon* rows will be null.
 
@@ -103,15 +99,13 @@ def forward_volatility(close: pl.Expr, horizon: int) -> pl.Expr:
 def forward_zreturn(close: pl.Expr, horizon: int, backward_vol_window: int) -> pl.Expr:
     r"""Compute forward volatility-normalized return (z-return).
 
-    .. math::
-
-        z^{\text{fwd}}_t = \frac{r^{\text{fwd}}_t}{\hat\sigma^{\text{bwd}}_t + \epsilon}
+    $$z^{\text{fwd}}_t = \frac{r^{\text{fwd}}_t}{\hat\sigma^{\text{bwd}}_t + \epsilon}$$
 
     where
 
-    * :math:`r^{\text{fwd}}_t = \ln(C_{t+h} / C_t)` is the
+    * $r^{\text{fwd}}_t = \ln(C_{t+h} / C_t)$ is the
       **forward** log return (uses future data -- this is a target).
-    * :math:`\hat\sigma^{\text{bwd}}_t = \text{std}(r_{t-w+1}, \ldots, r_t)`
+    * $\hat\sigma^{\text{bwd}}_t = \text{std}(r_{t-w+1}, \ldots, r_t)$
       is the **backward-looking** realized volatility computed from
       *past* 1-bar log returns only.
 
@@ -174,11 +168,11 @@ def winsorize_series(
     Returns:
         DataFrame with the specified column winsorized in place.
     """
-    lower_raw: int | float | list[int | float] | None = df[col_name].quantile(  # ty: ignore[invalid-assignment]
+    lower_raw: int | float | list[int | float] | None = df[col_name].quantile(
         lower_pct,
         interpolation="linear",
     )
-    upper_raw: int | float | list[int | float] | None = df[col_name].quantile(  # ty: ignore[invalid-assignment]
+    upper_raw: int | float | list[int | float] | None = df[col_name].quantile(
         upper_pct,
         interpolation="linear",
     )
