@@ -1,4 +1,4 @@
-"""Forecasting domain value objects — model configs and prediction containers."""
+"""Forecasting domain value objects — model configs, prediction containers, and calibration results."""
 
 from __future__ import annotations
 
@@ -395,3 +395,222 @@ class GARCHConfig(BaseModel, frozen=True):
 
     rescale: bool = True
     """Whether to rescale returns for numerical stability."""
+
+
+# ---------------------------------------------------------------------------
+# Model configs — Calibration & Conformal Prediction
+# ---------------------------------------------------------------------------
+
+
+class ACIConfig(BaseModel, frozen=True):
+    """Configuration for Adaptive Conformal Inference (Gibbs & Candes 2021).
+
+    ACI adapts the miscoverage rate alpha_t online so that prediction
+    intervals maintain target coverage even under distribution shift.
+
+    Attributes:
+        target_coverage: Desired marginal coverage probability (e.g. 0.90).
+        gamma: Step size controlling how fast alpha_t adapts.
+        initial_alpha: Starting miscoverage rate.  Defaults to ``1 - target_coverage``.
+        min_alpha: Floor for alpha_t to prevent degenerate (infinite-width) intervals.
+        max_alpha: Cap for alpha_t to prevent degenerate (zero-width) intervals.
+    """
+
+    target_coverage: Annotated[
+        float,
+        PydanticField(default=0.90, gt=0, lt=1, description="Target marginal coverage"),
+    ]
+
+    gamma: Annotated[
+        float,
+        PydanticField(default=0.005, gt=0, le=1, description="ACI step size"),
+    ]
+
+    initial_alpha: float | None = None
+    """Starting miscoverage rate.  ``None`` → ``1 - target_coverage``."""
+
+    min_alpha: Annotated[
+        float,
+        PydanticField(default=0.01, gt=0, lt=1, description="Floor for alpha_t"),
+    ]
+
+    max_alpha: Annotated[
+        float,
+        PydanticField(default=0.50, gt=0, lt=1, description="Cap for alpha_t"),
+    ]
+
+    @model_validator(mode="after")
+    def _alpha_bounds_valid(self) -> Self:
+        """Ensure min_alpha < max_alpha and initial_alpha is within bounds.
+
+        Returns:
+            Validated instance.
+
+        Raises:
+            ValueError: If bounds are invalid.
+        """
+        if self.min_alpha >= self.max_alpha:
+            msg: str = f"min_alpha ({self.min_alpha}) must be < max_alpha ({self.max_alpha})"
+            raise ValueError(msg)
+        effective_alpha: float = self.initial_alpha if self.initial_alpha is not None else (1.0 - self.target_coverage)
+        if not self.min_alpha <= effective_alpha <= self.max_alpha:
+            msg = f"initial_alpha ({effective_alpha}) must be in [{self.min_alpha}, {self.max_alpha}]"
+            raise ValueError(msg)
+        return self
+
+
+# ---------------------------------------------------------------------------
+# Calibration & conformal prediction result containers
+# ---------------------------------------------------------------------------
+
+
+class ConformalInterval(BaseModel, frozen=True):
+    """Prediction interval produced by a conformal predictor.
+
+    Attributes:
+        lower: Lower bounds of shape ``(n_samples,)``.
+        upper: Upper bounds of shape ``(n_samples,)``.
+        coverage: Empirical coverage if actuals were provided during prediction,
+            otherwise ``None``.
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    lower: np.ndarray[tuple[int], np.dtype[np.float64]]
+    """Shape ``(n_samples,)`` — lower interval bounds."""
+
+    upper: np.ndarray[tuple[int], np.dtype[np.float64]]
+    """Shape ``(n_samples,)`` — upper interval bounds."""
+
+    coverage: float | None = None
+    """Empirical coverage (fraction of actuals inside interval), or ``None``."""
+
+    @model_validator(mode="after")
+    def _shapes_match(self) -> Self:
+        """Ensure lower and upper arrays have the same length.
+
+        Returns:
+            Validated instance.
+
+        Raises:
+            ValueError: If shapes differ.
+        """
+        if self.lower.shape != self.upper.shape:
+            msg: str = f"lower shape {self.lower.shape} != upper shape {self.upper.shape}"
+            raise ValueError(msg)
+        return self
+
+
+class ReliabilityDiagramResult(BaseModel, frozen=True):
+    """Reliability diagram data: expected vs observed coverage at each quantile level.
+
+    Attributes:
+        expected_coverage: Nominal quantile levels (e.g. ``[0.05, 0.25, 0.50, 0.75, 0.95]``).
+        observed_coverage: Actual fraction of observations below each predicted quantile.
+        n_samples: Number of test samples used to compute coverage.
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    expected_coverage: np.ndarray[tuple[int], np.dtype[np.float64]]
+    """Nominal quantile levels."""
+
+    observed_coverage: np.ndarray[tuple[int], np.dtype[np.float64]]
+    """Actual coverage at each quantile level."""
+
+    n_samples: int
+    """Number of test samples."""
+
+    @model_validator(mode="after")
+    def _shapes_match(self) -> Self:
+        """Ensure expected and observed arrays have the same length.
+
+        Returns:
+            Validated instance.
+
+        Raises:
+            ValueError: If shapes differ.
+        """
+        if self.expected_coverage.shape != self.observed_coverage.shape:
+            msg: str = (
+                f"expected_coverage shape {self.expected_coverage.shape} "
+                f"!= observed_coverage shape {self.observed_coverage.shape}"
+            )
+            raise ValueError(msg)
+        return self
+
+
+class ResidualDiagnostics(BaseModel, frozen=True):
+    """Residual diagnostics for assessing conformal prediction assumptions.
+
+    Reports normality (Shapiro-Wilk) and homoscedasticity (Breusch-Pagan)
+    of model residuals.
+
+    Attributes:
+        shapiro_stat: Shapiro-Wilk W statistic.
+        shapiro_pvalue: Shapiro-Wilk p-value.
+        breusch_pagan_stat: Breusch-Pagan LM statistic.
+        breusch_pagan_pvalue: Breusch-Pagan p-value.
+        mean_residual: Mean of the residual vector.
+        std_residual: Standard deviation of the residual vector.
+        is_normal: ``True`` if Shapiro-Wilk p-value >= 0.05.
+        is_homoscedastic: ``True`` if Breusch-Pagan p-value >= 0.05.
+    """
+
+    shapiro_stat: float
+    """Shapiro-Wilk W statistic."""
+
+    shapiro_pvalue: float
+    """Shapiro-Wilk p-value."""
+
+    breusch_pagan_stat: float
+    """Breusch-Pagan LM statistic."""
+
+    breusch_pagan_pvalue: float
+    """Breusch-Pagan p-value."""
+
+    mean_residual: float
+    """Mean of residuals."""
+
+    std_residual: float
+    """Standard deviation of residuals."""
+
+    is_normal: bool
+    """True if Shapiro-Wilk p-value >= 0.05."""
+
+    is_homoscedastic: bool
+    """True if Breusch-Pagan p-value >= 0.05."""
+
+
+class RegimeCoverage(BaseModel, frozen=True):
+    """Per-regime coverage statistics for conformal intervals.
+
+    Splits samples by a volatility threshold (median) and reports
+    coverage separately for high-volatility and low-volatility periods.
+
+    Attributes:
+        overall_coverage: Fraction of actuals inside the interval across all samples.
+        high_vol_coverage: Coverage restricted to high-volatility samples.
+        low_vol_coverage: Coverage restricted to low-volatility samples.
+        high_vol_count: Number of high-volatility samples.
+        low_vol_count: Number of low-volatility samples.
+        vol_threshold: The volatility threshold used to split regimes (median).
+    """
+
+    overall_coverage: float
+    """Fraction of actuals inside the interval (all samples)."""
+
+    high_vol_coverage: float
+    """Coverage restricted to high-vol regime."""
+
+    low_vol_coverage: float
+    """Coverage restricted to low-vol regime."""
+
+    high_vol_count: int
+    """Number of samples in the high-vol regime."""
+
+    low_vol_count: int
+    """Number of samples in the low-vol regime."""
+
+    vol_threshold: float
+    """Volatility threshold used to split regimes."""
