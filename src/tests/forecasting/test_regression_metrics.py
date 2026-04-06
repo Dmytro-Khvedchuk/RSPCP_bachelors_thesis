@@ -362,6 +362,121 @@ class TestVolatilityMetrics:
 # ---------------------------------------------------------------------------
 
 
+class TestCRPSInvariants:
+    def test_crps_non_negativity(self) -> None:
+        """CRPS is a proper scoring rule and must be >= 0 for all inputs."""
+        rng = np.random.default_rng(42)
+        n = 200
+        actuals = rng.standard_normal(n).astype(np.float64)
+        mean = rng.standard_normal(n).astype(np.float64)
+        std = np.abs(rng.standard_normal(n)).astype(np.float64) + 0.01
+        result = compute_crps_gaussian(actuals, mean, std)
+        assert np.all(result.per_sample_crps >= 0.0), "CRPS must be non-negative for all samples"
+
+    def test_crps_scale_equivariance(self) -> None:
+        """CRPS(a*y, a*mu, a*sigma) = |a| * CRPS(y, mu, sigma).
+
+        This ensures the metric is meaningful under different return scales
+        (e.g. raw returns vs percentage returns).
+        """
+        rng = np.random.default_rng(42)
+        n = 100
+        actuals = rng.standard_normal(n).astype(np.float64)
+        mean = rng.standard_normal(n).astype(np.float64)
+        std = np.abs(rng.standard_normal(n)).astype(np.float64) + 0.1
+
+        scale_factor: float = 100.0  # e.g. converting to percentage returns
+        result_original = compute_crps_gaussian(actuals, mean, std)
+        result_scaled = compute_crps_gaussian(
+            actuals * scale_factor,
+            mean * scale_factor,
+            std * scale_factor,
+        )
+
+        np.testing.assert_allclose(
+            result_scaled.mean_crps,
+            scale_factor * result_original.mean_crps,
+            rtol=1e-6,
+            err_msg="CRPS must satisfy scale equivariance: CRPS(aY, aMu, aSigma) = |a|*CRPS(Y, Mu, Sigma)",
+        )
+
+
+class TestCRPSMonotonicity:
+    def test_crps_perfectly_calibrated_beats_miscalibrated(self) -> None:
+        """CRPS for perfectly calibrated Gaussian should be lower than miscalibrated."""
+        rng = np.random.default_rng(42)
+        n = 500
+
+        # Generate actuals from N(0, 1)
+        actuals = rng.standard_normal(n).astype(np.float64)
+
+        # Perfectly calibrated: mean=0, std=1 (matches the true DGP)
+        mean_good = np.zeros(n, dtype=np.float64)
+        std_good = np.ones(n, dtype=np.float64)
+
+        # Miscalibrated: mean=0, std=3 (too wide)
+        std_wide = np.full(n, 3.0, dtype=np.float64)
+
+        # Miscalibrated: mean=2, std=1 (biased)
+        mean_biased = np.full(n, 2.0, dtype=np.float64)
+        std_biased = np.ones(n, dtype=np.float64)
+
+        crps_good = compute_crps_gaussian(actuals, mean_good, std_good)
+        crps_wide = compute_crps_gaussian(actuals, mean_good, std_wide)
+        crps_biased = compute_crps_gaussian(actuals, mean_biased, std_biased)
+
+        assert crps_good.mean_crps < crps_wide.mean_crps, "Calibrated should beat too-wide"
+        assert crps_good.mean_crps < crps_biased.mean_crps, "Calibrated should beat biased"
+
+
+class TestQLIKEInvariants:
+    def test_qlike_non_negativity(self) -> None:
+        """QLIKE = mean(ratio - log(ratio) - 1) >= 0 by Jensen's inequality.
+
+        For any positive ratio x: x - ln(x) - 1 >= 0 (equality only at x=1).
+        """
+        rng = np.random.default_rng(42)
+        n = 200
+        actual_vol = rng.uniform(0.1, 3.0, size=n).astype(np.float64)
+        predicted_vol = rng.uniform(0.1, 3.0, size=n).astype(np.float64)
+        result = compute_volatility_metrics(actual_vol, predicted_vol)
+        assert result.qlike >= 0.0, f"QLIKE must be non-negative, got {result.qlike}"
+
+    def test_mincer_zarnowitz_r2_with_constant_shift(self) -> None:
+        """If predicted = actual + constant, MZ R² should still be 1.0.
+
+        The slope absorbs the scaling and the intercept absorbs the bias,
+        so a constant shift is a perfectly linear relationship.
+        """
+        rng = np.random.default_rng(42)
+        actual_vol = rng.uniform(0.5, 2.0, size=100).astype(np.float64)
+        predicted_vol = (actual_vol + 0.5).astype(np.float64)  # constant shift
+        result = compute_volatility_metrics(actual_vol, predicted_vol)
+
+        np.testing.assert_almost_equal(result.mincer_zarnowitz_r2, 1.0, decimal=6)
+        np.testing.assert_almost_equal(result.mincer_zarnowitz_slope, 1.0, decimal=4)
+
+
+class TestVolatilityMetricsWithNoise:
+    def test_noisy_predictions_lower_r2_higher_qlike(self) -> None:
+        """Noisy vol predictions should have lower MZ R^2 and higher QLIKE than perfect."""
+        rng = np.random.default_rng(42)
+        n = 200
+        actual_vol = rng.uniform(0.5, 2.0, size=n).astype(np.float64)
+
+        # Perfect predictions
+        result_perfect = compute_volatility_metrics(actual_vol, actual_vol.copy())
+
+        # Noisy predictions: true vol + noise
+        noise = rng.normal(0, 0.5, size=n).astype(np.float64)
+        noisy_vol = np.maximum(actual_vol + noise, 0.01).astype(np.float64)
+        result_noisy = compute_volatility_metrics(actual_vol, noisy_vol)
+
+        assert result_noisy.mincer_zarnowitz_r2 < result_perfect.mincer_zarnowitz_r2
+        assert result_noisy.qlike > result_perfect.qlike
+        assert result_noisy.log_vol_mae > result_perfect.log_vol_mae
+
+
 class TestPipelineStubs:
     def test_dc_mae_raises(self) -> None:
         with pytest.raises(NotImplementedError, match="Phase 11"):

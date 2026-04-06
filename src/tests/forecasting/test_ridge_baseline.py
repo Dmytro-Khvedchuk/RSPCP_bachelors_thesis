@@ -157,3 +157,51 @@ class TestRidgeBaseline:
         # Model should not do dramatically better than naive on pure noise
         # Allow 30% improvement since regularised model can sometimes edge out
         assert mae_model > 0.7 * mae_naive, f"Model MAE={mae_model:.4f} << naive MAE={mae_naive:.4f} on pure noise"
+
+    def test_huber_robustness_on_outlier_data(self) -> None:
+        """Huber should outperform Ridge when training data has outlier contamination."""
+        rng: np.random.Generator = np.random.default_rng(42)
+        n: int = 300
+        n_features: int = 5
+        x: np.ndarray[tuple[int, int], np.dtype[np.float64]] = rng.standard_normal((n, n_features)).astype(np.float64)
+        w: np.ndarray[tuple[int], np.dtype[np.float64]] = rng.standard_normal(n_features).astype(np.float64)
+        y_clean: np.ndarray[tuple[int], np.dtype[np.float64]] = (x @ w + rng.normal(0, 0.1, n)).astype(np.float64)
+
+        # Contaminate 10% of training targets with extreme outliers
+        n_train: int = 200
+        y_train: np.ndarray[tuple[int], np.dtype[np.float64]] = y_clean[:n_train].copy()
+        outlier_idx: np.ndarray[tuple[int], np.dtype[np.intp]] = rng.choice(n_train, size=20, replace=False)
+        y_train[outlier_idx] += rng.choice([-1, 1], size=20) * 50.0
+
+        x_test: np.ndarray[tuple[int, int], np.dtype[np.float64]] = x[n_train:]
+        y_test: np.ndarray[tuple[int], np.dtype[np.float64]] = y_clean[n_train:]
+
+        ridge: RidgeBaseline = RidgeBaseline(make_ridge_config(use_huber=False, alpha=1.0))
+        ridge.fit(x[:n_train], y_train)
+        mae_ridge: float = float(np.mean(np.abs(ridge.predict(x_test).mean - y_test)))
+
+        huber: RidgeBaseline = RidgeBaseline(make_ridge_config(use_huber=True, alpha=1.0))
+        huber.fit(x[:n_train], y_train)
+        mae_huber: float = float(np.mean(np.abs(huber.predict(x_test).mean - y_test)))
+
+        assert mae_huber < mae_ridge, (
+            f"Huber MAE={mae_huber:.4f} should beat Ridge MAE={mae_ridge:.4f} on outlier-contaminated data"
+        )
+
+    def test_ridge_single_sample_fit(self) -> None:
+        """Fitting on a single sample should work with residual_std=0."""
+        x_single: np.ndarray[tuple[int, int], np.dtype[np.float64]] = np.array([[1.0, 2.0, 3.0]], dtype=np.float64)
+        y_single: np.ndarray[tuple[int], np.dtype[np.float64]] = np.array([5.0], dtype=np.float64)
+
+        config: RidgeConfig = make_ridge_config()
+        model: RidgeBaseline = RidgeBaseline(config)
+        model.fit(x_single, y_single)
+
+        # Residual std should be 0 for a single sample
+        assert model._residual_std == 0.0
+
+        # Predict should work (std will be 0)
+        pred: PointPrediction = model.predict(x_single)
+        assert pred.mean.shape == (1,)
+        assert pred.std.shape == (1,)
+        assert float(pred.std[0]) == 0.0

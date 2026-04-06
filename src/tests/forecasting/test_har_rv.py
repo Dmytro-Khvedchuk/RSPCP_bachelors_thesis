@@ -165,3 +165,98 @@ class TestHARRVForecaster:
 
         with pytest.raises(RuntimeError, match="fitted before prediction"):
             model.predict(5)
+
+    def test_har_iterative_vs_features_one_step(
+        self,
+        rv_series: np.ndarray[tuple[int], np.dtype[np.float64]],
+        har_config: HARRVConfig,
+    ) -> None:
+        """Iterative and feature-based prediction should produce similar 1-step forecast."""
+        model: HARRVForecaster = HARRVForecaster(har_config)
+        model.fit(rv_series)
+
+        # Iterative 1-step forecast
+        forecast_iter: VolatilityForecast = model.predict(1)
+
+        # Feature-based 1-step forecast: construct features from the same series
+        features: np.ndarray[tuple[int, int], np.dtype[np.float64]] = HARRVForecaster.construct_har_features(
+            rv_series, har_config
+        )
+        x_test: np.ndarray[tuple[int, int], np.dtype[np.float64]] = features[-1:]
+        forecast_feat: VolatilityForecast = model.predict(1, x_test=x_test)
+
+        # Both should produce very similar results for the first step
+        np.testing.assert_allclose(
+            forecast_iter.predicted_var,
+            forecast_feat.predicted_var,
+            rtol=1e-6,
+            err_msg="Iterative and feature-based 1-step forecasts should match",
+        )
+
+    def test_har_no_intercept(
+        self,
+        rv_series: np.ndarray[tuple[int], np.dtype[np.float64]],
+    ) -> None:
+        """Config with fit_intercept=False should fit and predict without error."""
+        config: HARRVConfig = make_har_config(fit_intercept=False)
+        model: HARRVForecaster = HARRVForecaster(config)
+        model.fit(rv_series)
+
+        forecast: VolatilityForecast = model.predict(3)
+
+        assert forecast.predicted_vol.shape == (3,)
+        assert forecast.predicted_var.shape == (3,)
+        assert np.all(forecast.predicted_var > 0)
+
+    def test_har_iterative_prediction_stays_finite(
+        self,
+        rv_series: np.ndarray[tuple[int], np.dtype[np.float64]],
+        har_config: HARRVConfig,
+    ) -> None:
+        """Multi-step iterative forecasting should not diverge."""
+        model: HARRVForecaster = HARRVForecaster(har_config)
+        model.fit(rv_series)
+
+        n_steps: int = 50
+        forecast: VolatilityForecast = model.predict(n_steps)
+
+        assert np.all(np.isfinite(forecast.predicted_var)), "Iterative predictions must stay finite"
+        assert np.all(forecast.predicted_var > 0), "All predicted variances must be positive"
+        assert np.all(forecast.predicted_vol > 0), "All predicted volatilities must be positive"
+
+    def test_har_daily_coefficient_dominates_on_persistent_rv(self) -> None:
+        """On persistent RV data, the daily coefficient should be the largest.
+
+        The daily (short-term) RV component carries most predictive power
+        in Corsi (2009)'s HAR-RV model.  Due to multicollinearity between
+        the three components, individual coefficients can be negative, but
+        the sum must be positive (overall persistence) and the daily coefficient
+        should dominate.
+        """
+        rv: np.ndarray[tuple[int], np.dtype[np.float64]] = make_rv_series(n=500, seed=42)
+        config: HARRVConfig = make_har_config()
+
+        model: HARRVForecaster = HARRVForecaster(config)
+        model.fit(rv)
+
+        assert model._coefficients is not None
+        start_idx: int = 1 if config.fit_intercept else 0
+        slope_coeffs: np.ndarray[tuple[int], np.dtype[np.float64]] = model._coefficients[start_idx:]
+
+        daily_coeff: float = float(slope_coeffs[0])
+        coeff_sum: float = float(np.sum(slope_coeffs))
+
+        assert daily_coeff > 0, f"Daily coefficient should be positive, got {daily_coeff}"
+        assert coeff_sum > 0, f"Sum of HAR coefficients should be positive (persistence), got {coeff_sum}"
+        assert daily_coeff == float(np.max(slope_coeffs)), (
+            f"Daily coefficient should be the largest, got {slope_coeffs}"
+        )
+
+    def test_har_construct_features_too_short_raises(self) -> None:
+        """Series shorter than monthly_lag + 1 raises ValueError in construct_har_features."""
+        config: HARRVConfig = make_har_config(monthly_lag=5)
+        # Need at least monthly_lag + 1 = 6 observations; provide 5
+        short_rv: np.ndarray[tuple[int], np.dtype[np.float64]] = np.ones(5, dtype=np.float64)
+
+        with pytest.raises(ValueError, match="too short"):
+            HARRVForecaster.construct_har_features(short_rv, config)
