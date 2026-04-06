@@ -109,6 +109,20 @@ Timeframe enum only has: H1, H4, D1.
 - IStrategyFactory protocol enables per-fold retraining in WalkForwardRunner
 - Lo (2002) formula: SR_AC = SR × √(1 + 2 Σ ρ_k)
 
+### strategy Module (Phase 9) — Confirmed Structure
+- `src/app/strategy/` — domain (protocols.py only), application (5 strategy files)
+- No infrastructure layer — no DB, pure computation
+- `src/tests/strategy/` — 101 tests, flat structure: conftest.py + 6 test files
+  - test_momentum_crossover.py, test_mean_reversion.py, test_donchian_breakout.py
+  - test_volatility_targeting.py, test_no_trade.py, test_signal_diversity.py
+- IStrategy protocol: name property + generate_signals(FeatureSet) → pl.DataFrame
+- Signal output columns: timestamp (Datetime), side (Utf8: "long"/"short"/"flat"), strength (Float64 [0,1])
+- MeanReversion uses Hurst filter (hurst < 0.5) to suppress signals in trending regimes
+- DonchianBreakout applies shift(1) to rolling high before comparison — prevents look-ahead bias
+- VolatilityTargeting is always-long; NoTrade is always-flat (recommendation system baseline)
+- Signal diversity test: pairwise Jaccard similarity < 0.5 across all 5 strategy pairs
+- Note: strategy/ IStrategy protocol is DIFFERENT from backtest/ IStrategy — batch vs per-bar interface
+
 ### README Style Decisions
 - No badges (project has no live CI badge URLs)
 - Data flow section as ASCII diagram using boxes and arrows — extend it as new pipeline stages are added

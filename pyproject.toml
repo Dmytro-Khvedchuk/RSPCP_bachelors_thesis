@@ -11,6 +11,7 @@ dependencies = [
     "duckdb>=1.4.4",
     "duckdb-engine>=0.17.0",
     "isort>=8.0.1",
+    "lightgbm>=4.6.0",
     "loguru>=0.7.3",
     "matplotlib>=3.10.8",
     "mkdocs>=1.6.1",
@@ -29,6 +30,7 @@ dependencies = [
     "seaborn>=0.13.2",
     "sqlalchemy>=2.0.46",
     "statsmodels>=0.14.6",
+    "torch>=2.7.0",
     "tenacity>=9.1.2",
     "typer>=0.24.1",
 ]
@@ -141,25 +143,38 @@ convention = "google"
 ]
 "src/app/research/*" = [
     "ANN",     # research code uses untyped third-party libs (pandas, statsmodels, scipy, bokeh)
+    "PLR2004", # magic values in research validation/config code are acceptable
+    "PLR0914", # research analysis functions legitimately use many local variables
     "PLR6301", # research analyzers are stateless classes with no-self methods
 ]
-"research/*.ipynb" = [
-    "T201",    # print() is the primary output mechanism in notebooks
+"research/**/*.ipynb" = [
+    "ARG001",  # unused function arguments common in notebook helper functions
+    "B905",    # zip() without strict= — notebooks prioritize brevity
+    "B007",    # unused loop variables common in notebook iteration
+    "C408",    # dict() vs literal — style preference in notebooks
+    "C416",    # unnecessary list comprehension — readability in notebooks
+    "D",       # notebooks don't need docstrings
+    "DOC",     # notebooks don't need docstrings
     "E402",    # imports after %matplotlib inline magic are unavoidable
     "E501",    # long lines in notebooks acceptable (f-strings with data)
     "ANN",     # notebooks don't need strict type annotations
-    "B007",    # unused loop variables common in notebook iteration
-    "D",       # notebooks don't need docstrings
-    "DOC",     # notebooks don't need docstrings
     "F401",    # unused imports in notebooks are common (display, show, etc.)
+    "F404",    # from __future__ imports across cells are inherent to notebooks
     "F811",    # re-imports across cells are intentional (cell independence)
     "F821",    # cross-cell variable references are inherent to notebook execution
+    "N806",    # uppercase variable names (X, N) are ML convention
     "PD002",   # .applymap() used for styled DataFrame rendering
     "PERF401", # list comprehension vs loop — readability preferred in notebooks
+    "PLR0914", # many local variables in analysis cells are expected
+    "PLR0915", # many statements in analysis cells are expected
     "PLR2004", # magic values in notebook analysis cells are expected
+    "PLR6104", # augmented assignment style — not enforced in notebooks
     "PLR6201", # set literal vs tuple — not enforced in notebooks
     "RET504",  # unnecessary assignment before return — clarity in notebooks
     "S101",    # assert used for notebook-internal validation guards
+    "S110",    # try-except-pass in notebooks for optional dependencies
+    "SIM108",  # ternary vs if-else — readability in notebooks
+    "T201",    # print() is the primary output mechanism in notebooks
 ]
 
 [tool.ruff.lint.isort]

@@ -13,14 +13,19 @@ into a trained recommendation system that selects which trading signals to act o
 framework is statistically rigorous: walk-forward cross-validation, Monte Carlo permutation tests,
 and deflated Sharpe ratios guard against overfitting.
 
-**Current state:** Phases 1–8 complete — OHLCV ingestion, López de Prado alternative bars,
+**Current state:** Phases 1–10 complete — OHLCV ingestion, López de Prado alternative bars,
 RC1 research checkpoint, full feature engineering pipeline (21 indicators after Phase 7 audit,
 regression targets, feature matrix builder, and permutation-test validation), statistical
 profiling (distribution, serial dependence, volatility modeling, predictability assessment),
-RC2 profiling closure (6 audit gaps resolved), and a complete event-driven backtest engine
+RC2 profiling closure (6 audit gaps resolved), a complete event-driven backtest engine
 (domain model, execution layer with next-bar fill semantics, Lo 2002 corrected metrics,
-BuyAndHold + Random baselines, and walk-forward runner with expanding/rolling windows).
-1,429 tests passing. Phase 9 (Base Trading Strategies) is next.
+BuyAndHold + Random baselines, and walk-forward runner with expanding/rolling windows),
+5 batch trading strategies (momentum crossover, mean reversion, Donchian breakout,
+volatility targeting, no-trade), and the return regression forecasting track — 3 return
+regressors (Ridge baseline, LightGBM quantile with isotonic correction, GRU + MC Dropout),
+2 volatility forecasters (HAR-RV, ARIMA-GARCH(1,1)), ACI conformal prediction calibration,
+and standalone regression metrics (MAE, RMSE, R², CRPS, QLIKE, Mincer-Zarnowitz R²).
+1,758 tests passing. Phase 11 (Direction Classification / SIDE track) is next.
 
 ---
 
@@ -50,8 +55,9 @@ dependencies between layers. All data classes use Pydantic `BaseModel` — no ra
 | 5 | `profiling/` | Statistical profiling per asset | Done |
 | 6–7 | (research) | RC2 profiling closure — 6 audit gaps, stationarity policy, Tier B protocol | Done |
 | 8 | `backtest/` | Event-driven backtest engine | Done |
-| 9 | `strategy/` | Momentum, DRTS, mean-reversion strategies | Next |
-| 10–11 | `forecasting/` | Classification (SIDE) + regression (SIZE) | Planned |
+| 9 | `strategy/` | 5 batch strategies (momentum, mean-reversion, breakout, vol-targeting, no-trade) | Done |
+| 10 | `forecasting/` | Return regression (SIZE) — Ridge, LightGBM quantile, GRU+MC Dropout, HAR-RV, ARIMA-GARCH, ACI calibration | Done |
+| 11 | `forecasting/` | Direction classification (SIDE) | Next |
 | 12 | `recommendation/` | ML recommendation system (meta-labeling) | Planned |
 | 14 | `evaluation/` | Monte Carlo, PBO, DSR, MCS | Planned |
 | 16 | `live/` | Live paper trading engine | Planned |
@@ -84,6 +90,15 @@ RSPCP_bachelors_thesis/
 │   │   │   │                    # Signal, Position, Trade, EquityCurve, IStrategy, IPositionSizer
 │   │   │   └── application/     # ExecutionEngine, metrics.py, baselines.py, position_sizer.py,
 │   │   │                        # cost_sweep.py, walk_forward.py
+│   │   ├── strategy/            # Phase 9 — batch trading strategies
+│   │   │   ├── domain/          # IStrategy protocol (batch signal generation)
+│   │   │   └── application/     # MomentumCrossover, MeanReversion, DonchianBreakout,
+│   │   │                        # VolatilityTargeting, NoTrade
+│   │   ├── forecasting/         # Phase 10 — return regression + volatility forecasting
+│   │   │   ├── domain/          # ForecastResult, QuantileForecast, VolatilityForecast,
+│   │   │   │                    # IRegressor, IVolatilityForecaster, ICalibrator
+│   │   │   └── application/     # Ridge, LightGBM quantile, GRU+MC Dropout, HAR-RV,
+│   │   │                        # ARIMA-GARCH, calibration (ACI), regression metrics
 │   │   ├── ingestion/           # Phase 1 — Binance OHLCV ingestion
 │   │   │   ├── domain/          # BinanceKlineInterval, FetchRequest, exceptions, IMarketDataFetcher
 │   │   │   ├── application/     # IngestionService, IngestAssetCommand, IngestUniverseCommand
@@ -100,6 +115,9 @@ RSPCP_bachelors_thesis/
 │       ├── conftest.py          # Shared factories: make_asset, make_date_range, make_candle
 │       ├── backtest/            # 186 tests — domain, execution, metrics, baselines,
 │       │                        # position sizer, cost sweep, walk-forward
+│       ├── strategy/            # 101 tests — all 5 strategies, signal diversity (Jaccard)
+│       ├── forecasting/         # 228 tests — ridge, LightGBM, GRU, HAR-RV, GARCH,
+│       │                        # calibration, regression metrics, value objects
 │       ├── bars/                # 260 tests — domain, application, infrastructure, statistical
 │       ├── features/            # 195 tests — indicators, targets, matrix, validation, leakage
 │       ├── profiling/           # 188 tests — distribution, serial dependence, volatility,
@@ -519,6 +537,52 @@ on each fold's training slice before evaluation on the test slice.
 
 ---
 
+## Strategy Module — Technical Detail
+
+Implements Phase 9: five batch trading strategies that consume a `FeatureSet` and emit a
+`pl.DataFrame` of (timestamp, side, strength) signals. The batch interface complements the
+backtest engine's per-bar `IStrategy` protocol — strategies here process a full feature
+matrix at once rather than ticking bar-by-bar.
+
+### Strategy diversity
+
+The five strategies intentionally cover distinct market regimes and the "abstain" case:
+
+| Strategy | Class | Signal logic | Regime profile |
+|----------|-------|-------------|----------------|
+| Momentum Crossover | `MomentumCrossover` | Long when `ema_xover > threshold`, short when `< -threshold`, flat otherwise. Strength = clipped `\|ema_xover\|`. | Trending — directional persistence |
+| Mean Reversion | `MeanReversion` | Long when `close < lower_BB` AND `hurst < 0.5`, short when `close > upper_BB` AND `hurst < 0.5`. Strength = band-normalised distance. | Range-bound — mean-reverting with Hurst filter |
+| Donchian Breakout | `DonchianBreakout` | Long-only: long when `close > rolling_max(high.shift(1))`. Strength = ATR-normalised breakout distance. | Trending — breakout continuation |
+| Volatility Targeting | `VolatilityTargeting` | Always-long. Strength = `target_vol / realized_vol`, clipped to [0, 1]. | All regimes — inverse-vol sizing leverages vol-clustering |
+| No-Trade | `NoTrade` | Always-flat with avoidance confidence. PE gate (`pe_value > pe_threshold` → strength 1.0) or per-bar low-vol filter. | Transition / low-signal — recommendation system baseline |
+
+The `MeanReversion` Hurst filter (`hurst < 0.5`) suppresses signals during trending regimes
+where mean-reversion logic is unreliable. `DonchianBreakout` applies `.shift(1)` to the
+rolling high before comparison to eliminate look-ahead bias.
+
+### IStrategy protocol
+
+```python
+class IStrategy(Protocol):
+    @property
+    def name(self) -> str: ...
+
+    def generate_signals(self, feature_set: FeatureSet) -> pl.DataFrame: ...
+```
+
+The returned `pl.DataFrame` has three columns:
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `timestamp` | `Datetime` | Bar timestamp — aligns with `FeatureSet` row index |
+| `side` | `Utf8` | `"long"` / `"short"` / `"flat"` |
+| `strength` | `Float64` | Signal confidence in [0, 1] |
+
+Signal diversity is validated in tests using pairwise Jaccard similarity across all five
+strategy outputs — each pair must score below 0.5 to confirm regime orthogonality.
+
+---
+
 ## CI/CD
 
 Two GitHub Actions workflows run on pull requests to `main`:
@@ -658,6 +722,12 @@ ProfilingService.profile_all(assets, config, partition)
 StatisticalReport   ←── AssetBarProfile per (asset, bar_type), corrected p-values
       │
       ▼
+IStrategy.generate_signals(feature_set)
+      │  (batch signal generation: momentum, mean-reversion, breakout, vol-target, no-trade)
+      ▼
+Signal DataFrame   ←── timestamp, side ("long"/"short"/"flat"), strength [0,1]
+      │
+      ▼
 ExecutionEngine.run(signals, bars, config, sizer)
       │  (next-bar fill, commission + slippage, FixedFractional / RegimeConditional sizing)
       ▼
@@ -685,7 +755,7 @@ The full plan is in [`IMPLEMENTATION_PLAN.md`](./IMPLEMENTATION_PLAN.md). Summar
 
 **Block I — Data & Infrastructure (Phases 1–8)**
 
-Ingestion → alternative bars → RC1 → features → profiling → RC2 closure ✓ → backtest engine ✓ → strategies
+Ingestion → alternative bars → RC1 → features → profiling → RC2 closure ✓ → backtest engine ✓ → strategies ✓
 
 **Block II — Models & Recommendation (Phases 9–14)**
 

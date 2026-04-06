@@ -4,6 +4,7 @@
 - [project_arch_variance_ratio_api.md](project_arch_variance_ratio_api.md) -- arch.unitroot.VarianceRatio expects price levels (cumsum), not raw returns
 - [rc2_final_results.md](rc2_final_results.md) -- RC2 Go/No-Go final: GO with weak signal, vol features dominate, 0 deviations, 60 trials
 - [rc2_plan_audit_findings.md](rc2_plan_audit_findings.md) -- All 20 RC2 audit findings resolved in IMPLEMENTATION_PLAN.md (2026-03-25)
+- [project_rc3_pivot_decision.md](project_rc3_pivot_decision.md) -- RC3 PIVOT confirmed: all classifiers at coin-flip, Phases 10-12 abandoned, thesis pivots to methodology + negative result
 
 ## Reference
 - [rc2_agent1_preregistration.md](rc2_agent1_preregistration.md) -- Pre-registration framework design insights for RC2 crypto ML thesis
