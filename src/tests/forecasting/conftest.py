@@ -13,6 +13,7 @@ from src.app.forecasting.domain.value_objects import (
     GARCHConfig,
     GradientBoostingClassifierConfig,
     GradientBoostingConfig,
+    GRUClassifierConfig,
     GRUConfig,
     HARRVConfig,
     LogisticConfig,
@@ -202,6 +203,31 @@ def make_gb_clf_config(**overrides: object) -> GradientBoostingClassifierConfig:
     return GradientBoostingClassifierConfig(**defaults)  # type: ignore[arg-type]
 
 
+def make_gru_clf_config(**overrides: object) -> GRUClassifierConfig:
+    """Build a GRUClassifierConfig with small parameters for fast tests.
+
+    Args:
+        **overrides: Keyword arguments forwarded to GRUClassifierConfig.
+
+    Returns:
+        Configured GRUClassifierConfig instance.
+    """
+    defaults: dict[str, object] = {
+        "hidden_size": 8,
+        "num_layers": 1,
+        "dropout": 0.2,
+        "sequence_length": 5,
+        "learning_rate": 1e-3,
+        "n_epochs": 5,
+        "batch_size": 8,
+        "mc_samples": 3,
+        "patience": 3,
+        "random_seed": 42,
+    }
+    defaults.update(overrides)
+    return GRUClassifierConfig(**defaults)  # type: ignore[arg-type]
+
+
 # ---------------------------------------------------------------------------
 # Synthetic data generators
 # ---------------------------------------------------------------------------
@@ -386,6 +412,12 @@ def rf_clf_config() -> RandomForestClassifierConfig:
 def gb_clf_config() -> GradientBoostingClassifierConfig:
     """Return a default GradientBoostingClassifierConfig with small n_estimators."""
     return make_gb_clf_config()
+
+
+@pytest.fixture
+def gru_clf_config() -> GRUClassifierConfig:
+    """Return a default GRUClassifierConfig with small parameters."""
+    return make_gru_clf_config()
 
 
 @pytest.fixture
