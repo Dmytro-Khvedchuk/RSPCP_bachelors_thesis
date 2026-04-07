@@ -180,6 +180,9 @@ class TargetConfig(BaseModel, frozen=True):
     forward_zret_horizons: tuple[int, ...] = (1, 4, 24)
     """Bar-count horizons for forward volatility-normalized returns."""
 
+    forward_direction_horizons: tuple[int, ...] = (1, 4, 24)
+    """Bar-count horizons for forward direction classification targets."""
+
     backward_vol_window: Annotated[
         int,
         PydanticField(
@@ -282,6 +285,28 @@ class TargetConfig(BaseModel, frozen=True):
             raise ValueError(msg)
         if len(v) != len(set(v)):
             msg = f"forward_zret_horizons must not contain duplicates, got {v}"
+            raise ValueError(msg)
+        return v
+
+    @field_validator("forward_direction_horizons")
+    @classmethod
+    def _validate_direction_horizons(cls, v: tuple[int, ...]) -> tuple[int, ...]:
+        """Validate forward direction horizons are positive and unique.
+
+        Args:
+            v: Tuple of horizon values.
+
+        Returns:
+            Validated tuple.
+
+        Raises:
+            ValueError: If any value < 1 or there are duplicates.
+        """
+        if any(h < 1 for h in v):
+            msg: str = f"All forward_direction_horizons must be >= 1, got {v}"
+            raise ValueError(msg)
+        if len(v) != len(set(v)):
+            msg = f"forward_direction_horizons must not contain duplicates, got {v}"
             raise ValueError(msg)
         return v
 
