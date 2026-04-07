@@ -420,6 +420,67 @@ class TestShuffledLabelsCheck:
         assert result.n_permutations == 1
         assert len(result.per_permutation_da) == 1
 
+    def test_random_forest_on_shuffled_labels_da_near_50(self) -> None:
+        """Training RandomForestClassifier on permuted labels should yield DA ≈ 50% (11H null test)."""
+        from src.app.forecasting.application.random_forest_clf import RandomForestClassifier
+
+        from src.tests.forecasting.conftest import make_rf_clf_config
+
+        x, y = make_classification_data(n=300, n_features=5, seed=42)
+        folds = _simple_folds(n=300, n_folds=3)
+
+        result: ShuffledLabelResult = run_shuffled_labels_check(
+            model_factory=RandomForestClassifier,
+            model_kwargs={
+                "config": make_rf_clf_config(),
+                "horizon": ForecastHorizon.H1,
+            },
+            x=x,
+            y=y,
+            folds=folds,
+            config=ShuffledLabelCheckConfig(n_permutations=5, random_seed=42),
+        )
+
+        assert result.model_name == "RandomForestClassifier"
+        assert 0.48 <= result.mean_da <= 0.52, f"mean_da={result.mean_da:.4f} outside [0.48, 0.52]"
+        assert result.passed is True
+
+    def test_gradient_boosting_clf_on_shuffled_labels_da_near_50(self) -> None:
+        """Training GradientBoostingClassifier on permuted labels should yield DA ≈ 50% (11H null test).
+
+        Uses a wider tolerance ([0.43, 0.57]) than Logistic/RF because LightGBM's
+        Platt scaling (CalibratedClassifierCV with internal CV) introduces extra
+        variance on small shuffled-label datasets.  The key invariant is the same:
+        no systematic bias above chance.
+        """
+        from src.app.forecasting.application.gradient_boosting_clf import GradientBoostingClassifier
+
+        from src.tests.forecasting.conftest import make_gb_clf_config
+
+        x, y = make_classification_data(n=500, n_features=5, seed=42)
+        folds = _simple_folds(n=500, n_folds=3)
+
+        result: ShuffledLabelResult = run_shuffled_labels_check(
+            model_factory=GradientBoostingClassifier,
+            model_kwargs={
+                "config": make_gb_clf_config(),
+                "horizon": ForecastHorizon.H1,
+            },
+            x=x,
+            y=y,
+            folds=folds,
+            config=ShuffledLabelCheckConfig(n_permutations=10, random_seed=42),
+        )
+
+        assert result.model_name == "GradientBoostingClassifier"
+        # Wider band accounts for Platt scaling variance on shuffled data
+        assert 0.43 <= result.mean_da <= 0.57, f"mean_da={result.mean_da:.4f} outside [0.43, 0.57]"
+
+    # NOTE: GRU null test intentionally omitted — 2-3s per permutation adds
+    # test latency for no additional leakage-detection insight beyond the
+    # three classifiers above.  If Logistic/RF/LightGBM all collapse to ~50%
+    # on shuffled labels, the pipeline is validated.
+
 
 # ===========================================================================
 # SanityCheckReport value object tests
