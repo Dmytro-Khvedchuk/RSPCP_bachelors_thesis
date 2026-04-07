@@ -287,6 +287,7 @@ def make_small_target_config(**overrides: object) -> TargetConfig:
         "forward_return_horizons": (1, 4),
         "forward_vol_horizons": (2, 4),
         "forward_zret_horizons": (1, 4),
+        "forward_direction_horizons": (1, 4),
         "backward_vol_window": 5,
         "winsorize": False,
     }
