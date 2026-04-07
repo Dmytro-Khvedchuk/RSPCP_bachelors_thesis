@@ -17,6 +17,9 @@ from src.app.forecasting.domain.value_objects import (
     GRUConfig,
     HARRVConfig,
     LogisticConfig,
+    MajorityConfig,
+    MomentumSignConfig,
+    PersistenceConfig,
     RandomForestClassifierConfig,
     RidgeConfig,
 )
@@ -427,3 +430,80 @@ def classification_data() -> tuple[
 ]:
     """Return (X, y) classification data with y in {-1, +1}."""
     return make_classification_data()
+
+
+# ---------------------------------------------------------------------------
+# Naive classifier config factories
+# ---------------------------------------------------------------------------
+
+
+def make_majority_config(**overrides: object) -> MajorityConfig:
+    """Build a MajorityConfig with sensible test defaults.
+
+    Args:
+        **overrides: Keyword arguments forwarded to MajorityConfig.
+
+    Returns:
+        Configured MajorityConfig instance.
+    """
+    defaults: dict[str, object] = {
+        "random_seed": 42,
+    }
+    defaults.update(overrides)
+    return MajorityConfig(**defaults)  # type: ignore[arg-type]
+
+
+def make_persistence_config(**overrides: object) -> PersistenceConfig:
+    """Build a PersistenceConfig with sensible test defaults.
+
+    Args:
+        **overrides: Keyword arguments forwarded to PersistenceConfig.
+
+    Returns:
+        Configured PersistenceConfig instance.
+    """
+    defaults: dict[str, object] = {
+        "random_seed": 42,
+    }
+    defaults.update(overrides)
+    return PersistenceConfig(**defaults)  # type: ignore[arg-type]
+
+
+def make_momentum_sign_config(**overrides: object) -> MomentumSignConfig:
+    """Build a MomentumSignConfig with sensible test defaults.
+
+    Args:
+        **overrides: Keyword arguments forwarded to MomentumSignConfig.
+
+    Returns:
+        Configured MomentumSignConfig instance.
+    """
+    defaults: dict[str, object] = {
+        "momentum_col_idx": 0,
+        "random_seed": 42,
+    }
+    defaults.update(overrides)
+    return MomentumSignConfig(**defaults)  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# Naive classifier fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def majority_config() -> MajorityConfig:
+    """Return a default MajorityConfig for tests."""
+    return make_majority_config()
+
+
+@pytest.fixture
+def persistence_config() -> PersistenceConfig:
+    """Return a default PersistenceConfig for tests."""
+    return make_persistence_config()
+
+
+@pytest.fixture
+def momentum_sign_config() -> MomentumSignConfig:
+    """Return a default MomentumSignConfig for tests."""
+    return make_momentum_sign_config()
