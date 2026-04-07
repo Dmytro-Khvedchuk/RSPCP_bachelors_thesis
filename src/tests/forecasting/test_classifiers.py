@@ -562,6 +562,24 @@ class TestGRUClassifier:
         # Should be better than 50% on well-separated data
         assert acc > 0.5, f"GRU clf accuracy={acc:.4f} should be > 0.5 on separable data"
 
+    def test_gru_clf_val_loss_decreases_over_epochs(self) -> None:
+        """Validation loss at epoch 0 should be strictly greater than best val loss (11H convergence test)."""
+        x, y = _make_separable_data(n=200, n_features=5, seed=42)
+        n_train: int = 150
+
+        config: GRUClassifierConfig = make_gru_clf_config(n_epochs=30, patience=20)
+        model: GRUClassifier = GRUClassifier(config, ForecastHorizon.H1)
+        model.fit(x[:n_train], y[:n_train])
+
+        assert len(model.loss_history_) >= 2, "Need at least 2 epochs for convergence check"
+
+        first_val_loss: float = model.loss_history_[0][1]
+        best_val_loss: float = min(vl for _, vl in model.loss_history_)
+
+        assert first_val_loss > best_val_loss, (
+            f"Val loss should decrease: epoch 0 val_loss={first_val_loss:.6f}, best val_loss={best_val_loss:.6f}"
+        )
+
     def test_gru_clf_fit_predict_smoke(
         self,
         classification_data: tuple[

@@ -99,6 +99,7 @@ class GRUClassifier:
     Attributes:
         config: GRU classifier configuration object.
         horizon: Forecast horizon embedded in every ``DirectionForecast``.
+        loss_history_: Per-epoch ``(train_loss, val_loss)`` recorded during ``fit``.
     """
 
     def __init__(self, config: GRUClassifierConfig, horizon: ForecastHorizon) -> None:
@@ -110,6 +111,7 @@ class GRUClassifier:
         """
         self.config: GRUClassifierConfig = config
         self.horizon: ForecastHorizon = horizon
+        self.loss_history_: list[tuple[float, float]] = []
         self._model: _GRUClassifierNetwork | None = None
         self._scaler: StandardScaler = StandardScaler()
         self._device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -328,6 +330,7 @@ class GRUClassifier:
         patience_counter: int = 0
         best_state: dict[str, torch.Tensor] = {}
         epoch: int = 0
+        self.loss_history_ = []
 
         for epoch in range(self.config.n_epochs):
             # --- Training step ---
@@ -344,6 +347,8 @@ class GRUClassifier:
             with torch.no_grad():
                 val_preds: torch.Tensor = self._model(x_val_seq)
                 val_loss: float = loss_fn(val_preds, y_val_seq).item()
+
+            self.loss_history_.append((train_loss, val_loss))
 
             # --- Early stopping ---
             if val_loss < best_val_loss:
