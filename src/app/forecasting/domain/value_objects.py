@@ -2,12 +2,123 @@
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Annotated, Self
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict
 from pydantic import Field as PydanticField
 from pydantic import model_validator
+
+
+# ---------------------------------------------------------------------------
+# Forecast horizon & direction enums
+# ---------------------------------------------------------------------------
+
+
+class ForecastHorizon(StrEnum):
+    """Forecast horizon for direction and return predictions.
+
+    Defines the look-ahead period in bars for which a forecast is made.
+
+    Attributes:
+        H1: 1-bar horizon.
+        H4: 4-bar horizon.
+        H24: 24-bar horizon.
+    """
+
+    H1 = "h1"
+    H4 = "h4"
+    H24 = "h24"
+
+
+# ---------------------------------------------------------------------------
+# Classification value objects
+# ---------------------------------------------------------------------------
+
+
+class DirectionForecast(BaseModel, frozen=True):
+    """Predicted direction with confidence from a classification model.
+
+    Attributes:
+        predicted_direction: Predicted direction: +1 (long) or -1 (short).
+        confidence: Predicted probability for the chosen direction, in [0, 1].
+        horizon: Forecast horizon for which this prediction was made.
+    """
+
+    predicted_direction: Annotated[
+        int,
+        PydanticField(description="Predicted direction: +1 (long) or -1 (short)"),
+    ]
+    """Predicted direction: +1 (long) or -1 (short)."""
+
+    confidence: Annotated[
+        float,
+        PydanticField(ge=0.0, le=1.0, description="Probability for the predicted direction"),
+    ]
+    """Predicted probability for the chosen direction, in [0, 1]."""
+
+    horizon: ForecastHorizon
+    """Forecast horizon for which this prediction was made."""
+
+    @model_validator(mode="after")
+    def _direction_valid(self) -> Self:
+        """Ensure predicted_direction is +1 or -1.
+
+        Returns:
+            Validated instance.
+
+        Raises:
+            ValueError: If direction is not +1 or -1.
+        """
+        if self.predicted_direction not in {1, -1}:
+            msg: str = f"predicted_direction must be +1 or -1, got {self.predicted_direction}"
+            raise ValueError(msg)
+        return self
+
+
+class ReturnForecast(BaseModel, frozen=True):
+    """Point estimate of predicted return magnitude with optional uncertainty.
+
+    Attributes:
+        predicted_return: Point estimate of the predicted return.
+        prediction_std: Standard deviation (uncertainty) of the prediction.
+        quantiles: Optional predicted quantile values (e.g. at 5th, 25th, ..., 95th).
+        confidence_interval: Optional (lower, upper) bounds for the prediction.
+    """
+
+    predicted_return: float
+    """Point estimate of the predicted return."""
+
+    prediction_std: Annotated[
+        float,
+        PydanticField(ge=0.0, description="Standard deviation of the prediction"),
+    ]
+    """Standard deviation (uncertainty) of the prediction."""
+
+    quantiles: tuple[float, ...] | None = None
+    """Optional predicted quantile values."""
+
+    confidence_interval: tuple[float, float] | None = None
+    """Optional (lower, upper) bounds for the prediction."""
+
+    @model_validator(mode="after")
+    def _ci_bounds_valid(self) -> Self:
+        """Ensure confidence interval lower <= upper when provided.
+
+        Returns:
+            Validated instance.
+
+        Raises:
+            ValueError: If lower > upper in confidence_interval.
+        """
+        if self.confidence_interval is not None:
+            lower: float = self.confidence_interval[0]
+            upper: float = self.confidence_interval[1]
+            if lower > upper:
+                msg: str = f"confidence_interval lower ({lower}) must be <= upper ({upper})"
+                raise ValueError(msg)
+        return self
 
 
 # ---------------------------------------------------------------------------

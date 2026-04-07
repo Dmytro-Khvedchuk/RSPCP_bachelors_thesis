@@ -1,4 +1,4 @@
-"""Forecasting domain protocols — structural interfaces for regression and volatility models."""
+"""Forecasting domain protocols — structural interfaces for regression, classification, and volatility models."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from typing import Protocol
 import numpy as np
 
 from src.app.forecasting.domain.value_objects import (
+    DirectionForecast,
     PointPrediction,
     QuantilePrediction,
     VolatilityForecast,
@@ -135,5 +136,41 @@ class IVolatilityForecaster(Protocol):
 
         Returns:
             Volatility forecast with predicted vol and variance arrays.
+        """
+        ...
+
+
+class IDirectionClassifier(Protocol):
+    """Structural interface for direction classification models.
+
+    Implementations predict the direction (+1 long / -1 short) of future
+    returns.  Each model must support ``fit`` for training and ``predict``
+    for inference, returning a list of :class:`DirectionForecast` objects.
+    """
+
+    def fit(
+        self,
+        x_train: np.ndarray[tuple[int, int], np.dtype[np.float64]],
+        y_train: np.ndarray[tuple[int], np.dtype[np.float64]],
+    ) -> None:
+        """Train the classifier on feature matrix and direction labels.
+
+        Args:
+            x_train: Feature matrix of shape ``(n_samples, n_features)``.
+            y_train: Direction labels of shape ``(n_samples,)`` with values +1 or -1.
+        """
+        ...
+
+    def predict(
+        self,
+        x_test: np.ndarray[tuple[int, int], np.dtype[np.float64]],
+    ) -> list[DirectionForecast]:
+        """Generate direction forecasts with confidence estimates.
+
+        Args:
+            x_test: Feature matrix of shape ``(n_samples, n_features)``.
+
+        Returns:
+            List of direction forecasts, one per sample.
         """
         ...
