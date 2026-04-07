@@ -693,6 +693,215 @@ class ResidualDiagnostics(BaseModel, frozen=True):
     """True if Breusch-Pagan p-value >= 0.05."""
 
 
+# ---------------------------------------------------------------------------
+# Model configs — Direction Classifiers
+# ---------------------------------------------------------------------------
+
+
+class LogisticConfig(BaseModel, frozen=True):
+    """Configuration for the logistic regression classification baseline.
+
+    Attributes:
+        c: Inverse of L2 regularisation strength (smaller = stronger).
+        max_iter: Maximum number of solver iterations.
+        class_weight: Class weight strategy (``None`` or ``"balanced"``).
+        random_seed: Seed for reproducibility.
+    """
+
+    c: Annotated[
+        float,
+        PydanticField(default=1.0, gt=0, description="Inverse L2 regularisation strength"),
+    ]
+
+    max_iter: Annotated[
+        int,
+        PydanticField(default=1000, ge=1, description="Maximum solver iterations"),
+    ]
+
+    class_weight: Annotated[
+        str | None,
+        PydanticField(default=None, description="Class weight strategy: None or 'balanced'"),
+    ]
+
+    random_seed: int = 42
+    """Seed for reproducibility."""
+
+    @model_validator(mode="after")
+    def _class_weight_valid(self) -> Self:
+        """Ensure class_weight is None or 'balanced'.
+
+        Returns:
+            Validated instance.
+
+        Raises:
+            ValueError: If class_weight is not None or 'balanced'.
+        """
+        if self.class_weight is not None and self.class_weight != "balanced":
+            msg: str = f"class_weight must be None or 'balanced', got '{self.class_weight}'"
+            raise ValueError(msg)
+        return self
+
+
+class RandomForestClassifierConfig(BaseModel, frozen=True):
+    """Configuration for the Random Forest direction classifier.
+
+    Attributes:
+        n_estimators: Number of trees in the forest.
+        max_depth: Maximum tree depth (``None`` for unlimited).
+        min_samples_leaf: Minimum samples required in a leaf node.
+        max_features: Feature subsampling strategy (``"sqrt"``, ``"log2"``, or a float fraction).
+        class_weight: Class weight strategy (``None`` or ``"balanced"``).
+        random_seed: Seed for reproducibility.
+    """
+
+    n_estimators: Annotated[
+        int,
+        PydanticField(default=200, ge=1, description="Number of trees"),
+    ]
+
+    max_depth: Annotated[
+        int | None,
+        PydanticField(default=None, description="Maximum tree depth (None = unlimited)"),
+    ]
+
+    min_samples_leaf: Annotated[
+        int,
+        PydanticField(default=5, ge=1, description="Minimum samples in a leaf"),
+    ]
+
+    max_features: Annotated[
+        str,
+        PydanticField(default="sqrt", description="Feature subsampling: 'sqrt', 'log2'"),
+    ]
+
+    class_weight: Annotated[
+        str | None,
+        PydanticField(default=None, description="Class weight strategy: None or 'balanced'"),
+    ]
+
+    random_seed: int = 42
+    """Seed for reproducibility."""
+
+    @model_validator(mode="after")
+    def _class_weight_valid(self) -> Self:
+        """Ensure class_weight is None or 'balanced'.
+
+        Returns:
+            Validated instance.
+
+        Raises:
+            ValueError: If class_weight is not None or 'balanced'.
+        """
+        if self.class_weight is not None and self.class_weight != "balanced":
+            msg: str = f"class_weight must be None or 'balanced', got '{self.class_weight}'"
+            raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def _max_features_valid(self) -> Self:
+        """Ensure max_features is a recognised strategy.
+
+        Returns:
+            Validated instance.
+
+        Raises:
+            ValueError: If max_features is not a known strategy.
+        """
+        allowed: set[str] = {"sqrt", "log2"}
+        if self.max_features not in allowed:
+            msg: str = f"max_features must be one of {allowed}, got '{self.max_features}'"
+            raise ValueError(msg)
+        return self
+
+
+class GradientBoostingClassifierConfig(BaseModel, frozen=True):
+    """Configuration for the LightGBM direction classifier with Platt scaling.
+
+    Uses LGBMClassifier with binary objective, post-hoc calibrated via
+    sklearn CalibratedClassifierCV (Platt scaling or isotonic regression).
+
+    Attributes:
+        n_estimators: Number of boosting rounds.
+        learning_rate: Step size shrinkage.
+        max_depth: Maximum tree depth.
+        min_child_samples: Minimum samples in a leaf.
+        reg_alpha: L1 regularisation.
+        reg_lambda: L2 regularisation.
+        subsample: Row subsampling ratio.
+        colsample_bytree: Column subsampling ratio.
+        calibration_method: Calibration method (``"sigmoid"`` for Platt, ``"isotonic"``).
+        calibration_cv: Number of CV folds for calibration.
+        random_seed: Seed for reproducibility.
+    """
+
+    n_estimators: Annotated[
+        int,
+        PydanticField(default=500, ge=10, description="Number of boosting rounds"),
+    ]
+
+    learning_rate: Annotated[
+        float,
+        PydanticField(default=0.05, gt=0, le=1, description="Step size shrinkage"),
+    ]
+
+    max_depth: int = 6
+    """Maximum tree depth."""
+
+    min_child_samples: Annotated[
+        int,
+        PydanticField(default=20, ge=1, description="Minimum samples in a leaf"),
+    ]
+
+    reg_alpha: Annotated[
+        float,
+        PydanticField(default=0.0, ge=0, description="L1 regularisation"),
+    ]
+
+    reg_lambda: Annotated[
+        float,
+        PydanticField(default=1.0, ge=0, description="L2 regularisation"),
+    ]
+
+    subsample: Annotated[
+        float,
+        PydanticField(default=0.8, gt=0, le=1, description="Row subsampling ratio"),
+    ]
+
+    colsample_bytree: Annotated[
+        float,
+        PydanticField(default=0.8, gt=0, le=1, description="Column subsampling ratio"),
+    ]
+
+    calibration_method: Annotated[
+        str,
+        PydanticField(default="sigmoid", description="Calibration: 'sigmoid' (Platt) or 'isotonic'"),
+    ]
+
+    calibration_cv: Annotated[
+        int,
+        PydanticField(default=3, ge=2, description="CV folds for calibration"),
+    ]
+
+    random_seed: int = 42
+    """Seed for reproducibility."""
+
+    @model_validator(mode="after")
+    def _calibration_method_valid(self) -> Self:
+        """Ensure calibration_method is 'sigmoid' or 'isotonic'.
+
+        Returns:
+            Validated instance.
+
+        Raises:
+            ValueError: If calibration_method is not recognised.
+        """
+        allowed: set[str] = {"sigmoid", "isotonic"}
+        if self.calibration_method not in allowed:
+            msg: str = f"calibration_method must be one of {allowed}, got '{self.calibration_method}'"
+            raise ValueError(msg)
+        return self
+
+
 class RegimeCoverage(BaseModel, frozen=True):
     """Per-regime coverage statistics for conformal intervals.
 
