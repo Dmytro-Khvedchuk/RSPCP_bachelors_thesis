@@ -13,7 +13,7 @@ into a trained recommendation system that selects which trading signals to act o
 framework is statistically rigorous: walk-forward cross-validation, Monte Carlo permutation tests,
 and deflated Sharpe ratios guard against overfitting.
 
-**Current state:** Phases 1–10 complete — OHLCV ingestion, López de Prado alternative bars,
+**Current state:** Phases 1–11 complete — OHLCV ingestion, López de Prado alternative bars,
 RC1 research checkpoint, full feature engineering pipeline (21 indicators after Phase 7 audit,
 regression targets, feature matrix builder, and permutation-test validation), statistical
 profiling (distribution, serial dependence, volatility modeling, predictability assessment),
@@ -21,11 +21,16 @@ RC2 profiling closure (6 audit gaps resolved), a complete event-driven backtest 
 (domain model, execution layer with next-bar fill semantics, Lo 2002 corrected metrics,
 BuyAndHold + Random baselines, and walk-forward runner with expanding/rolling windows),
 5 batch trading strategies (momentum crossover, mean reversion, Donchian breakout,
-volatility targeting, no-trade), and the return regression forecasting track — 3 return
+volatility targeting, no-trade), the return regression forecasting track — 3 return
 regressors (Ridge baseline, LightGBM quantile with isotonic correction, GRU + MC Dropout),
 2 volatility forecasters (HAR-RV, ARIMA-GARCH(1,1)), ACI conformal prediction calibration,
-and standalone regression metrics (MAE, RMSE, R², CRPS, QLIKE, Mincer-Zarnowitz R²).
-1,758 tests passing. Phase 11 (Direction Classification / SIDE track) is next.
+and standalone regression metrics (MAE, RMSE, R², CRPS, QLIKE, Mincer-Zarnowitz R²), and the
+direction classification forecasting track — 4 classifiers (Logistic, Random Forest, LightGBM
+with Platt/isotonic calibration, GRU with MC Dropout), 3 naive baselines (Majority, Persistence,
+MomentumSign), CPCV splitter with purging + embargo + cross-asset temporal purging, classification
+metrics with abstention curves, reliability diagrams, ECE, and economic accuracy, label overlap
+handling (sequential bootstrap, Kish N_eff), and shuffled-labels sanity checks.
+~1,947 tests passing. Phase 12 (ML recommendation system) is next.
 
 ---
 
@@ -57,8 +62,8 @@ dependencies between layers. All data classes use Pydantic `BaseModel` — no ra
 | 8 | `backtest/` | Event-driven backtest engine | Done |
 | 9 | `strategy/` | 5 batch strategies (momentum, mean-reversion, breakout, vol-targeting, no-trade) | Done |
 | 10 | `forecasting/` | Return regression (SIZE) — Ridge, LightGBM quantile, GRU+MC Dropout, HAR-RV, ARIMA-GARCH, ACI calibration | Done |
-| 11 | `forecasting/` | Direction classification (SIDE) | Next |
-| 12 | `recommendation/` | ML recommendation system (meta-labeling) | Planned |
+| 11 | `forecasting/` | Direction classification (SIDE) — Logistic, RF, LightGBM, GRU, CPCV, classification metrics, label overlap, sanity checks | Done |
+| 12 | `recommendation/` | ML recommendation system (meta-labeling) | Next |
 | 14 | `evaluation/` | Monte Carlo, PBO, DSR, MCS | Planned |
 | 16 | `live/` | Live paper trading engine | Planned |
 | 17 | `dashboard/` | FastAPI + Streamlit/Dash | Planned |
@@ -94,11 +99,22 @@ RSPCP_bachelors_thesis/
 │   │   │   ├── domain/          # IStrategy protocol (batch signal generation)
 │   │   │   └── application/     # MomentumCrossover, MeanReversion, DonchianBreakout,
 │   │   │                        # VolatilityTargeting, NoTrade
-│   │   ├── forecasting/         # Phase 10 — return regression + volatility forecasting
+│   │   ├── forecasting/         # Phase 10–11 — return regression + direction classification
 │   │   │   ├── domain/          # ForecastResult, QuantileForecast, VolatilityForecast,
-│   │   │   │                    # IRegressor, IVolatilityForecaster, ICalibrator
-│   │   │   └── application/     # Ridge, LightGBM quantile, GRU+MC Dropout, HAR-RV,
-│   │   │                        # ARIMA-GARCH, calibration (ACI), regression metrics
+│   │   │   │                    # IRegressor, IVolatilityForecaster, ICalibrator,
+│   │   │   │                    # IDirectionClassifier, DirectionForecast, ForecastHorizon,
+│   │   │   │                    # LogisticConfig, RandomForestClassifierConfig,
+│   │   │   │                    # GradientBoostingClassifierConfig, GRUClassifierConfig,
+│   │   │   │                    # MajorityConfig, PersistenceConfig, MomentumSignConfig,
+│   │   │   │                    # ShuffledLabelResult, NaiveBenchmarkResult, SanityCheckReport
+│   │   │   ├── application/     # Ridge, LightGBM quantile, GRU+MC Dropout, HAR-RV,
+│   │   │   │                    # ARIMA-GARCH, calibration (ACI), regression metrics,
+│   │   │   │                    # LogisticBaseline, RandomForestClassifier,
+│   │   │   │                    # GradientBoostingClassifier, GRUClassifier,
+│   │   │   │                    # MajorityClassifier, PersistenceClassifier,
+│   │   │   │                    # MomentumSignClassifier, classification_metrics.py,
+│   │   │   │                    # label_overlap.py, sanity_checks.py
+│   │   │   └── infrastructure/  # cpcv.py (CPCV splitter with purging + embargo)
 │   │   ├── ingestion/           # Phase 1 — Binance OHLCV ingestion
 │   │   │   ├── domain/          # BinanceKlineInterval, FetchRequest, exceptions, IMarketDataFetcher
 │   │   │   ├── application/     # IngestionService, IngestAssetCommand, IngestUniverseCommand
@@ -116,8 +132,10 @@ RSPCP_bachelors_thesis/
 │       ├── backtest/            # 186 tests — domain, execution, metrics, baselines,
 │       │                        # position sizer, cost sweep, walk-forward
 │       ├── strategy/            # 101 tests — all 5 strategies, signal diversity (Jaccard)
-│       ├── forecasting/         # 228 tests — ridge, LightGBM, GRU, HAR-RV, GARCH,
-│       │                        # calibration, regression metrics, value objects
+│       ├── forecasting/         # ~417 tests — ridge, LightGBM, GRU, HAR-RV, GARCH,
+│       │                        # calibration, regression metrics, value objects,
+│       │                        # classifiers (Logistic/RF/LightGBM/GRU), naive baselines,
+│       │                        # classification metrics, label overlap, CPCV, sanity checks
 │       ├── bars/                # 260 tests — domain, application, infrastructure, statistical
 │       ├── features/            # 195 tests — indicators, targets, matrix, validation, leakage
 │       ├── profiling/           # 188 tests — distribution, serial dependence, volatility,
@@ -583,6 +601,82 @@ strategy outputs — each pair must score below 0.5 to confirm regime orthogonal
 
 ---
 
+## Forecasting Module — Classification Track (Phase 11)
+
+Implements the direction classification (SIDE) forecasting track. All classifiers implement
+the `IDirectionClassifier` protocol from the domain layer and produce `DirectionForecast`
+value objects tagged with `ForecastHorizon` (H1, H4, H24).
+
+### IDirectionClassifier protocol
+
+```python
+class IDirectionClassifier(Protocol):
+    def fit(self, x_train: np.ndarray, y_train: np.ndarray) -> None: ...
+    def predict(self, x_test: np.ndarray) -> list[DirectionForecast]: ...
+```
+
+`DirectionForecast` carries `predicted_direction` (+1 / −1), `confidence` [0, 1], and
+`horizon`. Confidence is obtained via native calibration (Logistic) or
+`CalibratedClassifierCV` with Platt/isotonic scaling (LightGBM). The GRU classifier
+derives uncertainty through MC Dropout at inference time.
+
+### Classifiers
+
+| Classifier | Class | Key implementation detail |
+|------------|-------|--------------------------|
+| Logistic baseline | `LogisticBaseline` | sklearn `LogisticRegression`, L2 regularisation, natively calibrated probabilities |
+| Random forest | `RandomForestClassifier` | sklearn RF with Gini feature importances |
+| Gradient boosting | `GradientBoostingClassifier` | LightGBM with `CalibratedClassifierCV` (Platt/isotonic) |
+| GRU | `GRUClassifier` | Multi-layer GRU, BCE loss, MC Dropout uncertainty, early stopping (Grinsztajn et al. 2022 negative-result experiment) |
+
+### Naive baselines
+
+| Classifier | Class | Prediction rule |
+|------------|-------|----------------|
+| Majority | `MajorityClassifier` | Always predicts the most frequent training label |
+| Persistence | `PersistenceClassifier` | Predicts the last observed training direction |
+| Momentum sign | `MomentumSignClassifier` | Predicts the sign of the momentum feature |
+
+### Classification metrics
+
+`classification_metrics.py` (711 lines) computes:
+
+| Metric | Description |
+|--------|-------------|
+| Accuracy, precision, recall, F1 | Per-class; macro/weighted aggregations |
+| AUC-ROC | Custom trapezoidal implementation — no sklearn dependency |
+| Abstention curve | Directional accuracy vs. coverage at 5 confidence thresholds |
+| Reliability diagram + ECE | Calibration quality; Expected Calibration Error |
+| Economic accuracy | Return-weighted correct predictions |
+| Asymmetric class weighting | Crash penalty 1.5× (reflects crypto negative skewness) |
+
+### Label overlap handling
+
+`label_overlap.py` (431 lines) implements López de Prado Ch. 4 techniques for dealing
+with overlapping forward-return labels:
+
+- **Sequential bootstrap** — conditional uniqueness sampling to reduce label redundancy
+- **Non-overlapping subsampling** — stride-based selection for clean fold boundaries
+- **Kish N_eff** — effective sample size from the indicator matrix
+- **Indicator matrix** — maps each sample to its overlapping label set
+
+### CPCV splitter
+
+`cpcv.py` (398 lines) in the infrastructure layer implements Combinatorial Purged
+Cross-Validation (López de Prado, *AFML* Ch. 7 & 12):
+
+- Purging removes training samples whose labels overlap with test samples
+- Embargo prevents adjacent-bar leakage at fold boundaries
+- Cross-asset temporal purging handles correlated assets (e.g., BTC/ETH ρ ≈ 0.85)
+
+### Sanity checks
+
+`sanity_checks.py` implements the Ojala & Garriga (2010) shuffled-labels permutation test:
+after fitting on permuted labels, directional accuracy must collapse to the [0.48, 0.52]
+range. The test accepts any `IDirectionClassifier` via the protocol interface.
+
+---
+
 ## CI/CD
 
 Two GitHub Actions workflows run on pull requests to `main`:
@@ -745,6 +839,36 @@ WalkForwardRunner.run(factory, bars, config)
       │  (expanding / rolling windows, equity chaining, IStrategyFactory per fold)
       ▼
 WalkForwardResult   ←── per-fold WindowResult, combined EquityCurve, aggregate metrics
+      │
+      ├──── (regression track — Phase 10) ──────────────────────────────────────────────┐
+      │                                                                                  │
+      ▼                                                                                  │
+IRegressor.fit / IVolatilityForecaster.fit                                              │
+      │  (Ridge, LightGBM quantile, GRU+MC Dropout, HAR-RV, ARIMA-GARCH(1,1))          │
+      ▼                                                                                  │
+RegressionMetrics   ←── MAE, RMSE, R², CRPS, QLIKE, DC-MAE, Mincer-Zarnowitz R²       │
+      │                                                                                  │
+      └──────────────────────────────────────────────────────────────────────────────────┘
+      │
+      ├──── (classification track — Phase 11) ───────────────────────────────────────────┐
+      │                                                                                   │
+      ▼                                                                                   │
+LabelOverlap (sequential bootstrap / Kish N_eff)                                        │
+      │  (López de Prado Ch. 4 — deduplication of overlapping forward-return labels)     │
+      ▼                                                                                   │
+CPCV splitter (infrastructure)                                                          │
+      │  (purging + embargo + cross-asset temporal purging)                              │
+      ▼                                                                                   │
+IDirectionClassifier.fit / predict                                                      │
+      │  (Logistic, RandomForest, LightGBM+calibration, GRU+MC Dropout,                 │
+      │   Majority, Persistence, MomentumSign baselines)                                 │
+      ▼                                                                                   │
+ClassificationMetrics   ←── accuracy, AUC-ROC, ECE, abstention curve, economic DA      │
+      │                                                                                   │
+      ▼                                                                                   │
+SanityCheckReport   ←── shuffled-labels permutation test (DA must collapse to ~0.50)   │
+      │                                                                                   │
+      └───────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -759,7 +883,7 @@ Ingestion → alternative bars → RC1 → features → profiling → RC2 closur
 
 **Block II — Models & Recommendation (Phases 9–14)**
 
-Direction classification → return regression → RC3 → ML recommendation system → RC4 → statistical proof
+Strategies ✓ → return regression (SIZE) ✓ → direction classification (SIDE) ✓ → RC3 → ML recommendation system → RC4 → statistical proof
 
 **Block III — Polishing & Production (Phases 15–17)**
 
