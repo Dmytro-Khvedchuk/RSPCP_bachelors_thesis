@@ -11,9 +11,12 @@ import pytest
 
 from src.app.forecasting.domain.value_objects import (
     GARCHConfig,
+    GradientBoostingClassifierConfig,
     GradientBoostingConfig,
     GRUConfig,
     HARRVConfig,
+    LogisticConfig,
+    RandomForestClassifierConfig,
     RidgeConfig,
 )
 
@@ -133,6 +136,72 @@ def make_garch_config(**overrides: object) -> GARCHConfig:
     return GARCHConfig(**defaults)  # type: ignore[arg-type]
 
 
+def make_logistic_config(**overrides: object) -> LogisticConfig:
+    """Build a LogisticConfig with sensible test defaults.
+
+    Args:
+        **overrides: Keyword arguments forwarded to LogisticConfig.
+
+    Returns:
+        Configured LogisticConfig instance.
+    """
+    defaults: dict[str, object] = {
+        "c": 1.0,
+        "max_iter": 1000,
+        "class_weight": None,
+        "random_seed": 42,
+    }
+    defaults.update(overrides)
+    return LogisticConfig(**defaults)  # type: ignore[arg-type]
+
+
+def make_rf_clf_config(**overrides: object) -> RandomForestClassifierConfig:
+    """Build a RandomForestClassifierConfig with small n_estimators for speed.
+
+    Args:
+        **overrides: Keyword arguments forwarded to RandomForestClassifierConfig.
+
+    Returns:
+        Configured RandomForestClassifierConfig instance.
+    """
+    defaults: dict[str, object] = {
+        "n_estimators": 20,
+        "max_depth": None,
+        "min_samples_leaf": 5,
+        "max_features": "sqrt",
+        "class_weight": None,
+        "random_seed": 42,
+    }
+    defaults.update(overrides)
+    return RandomForestClassifierConfig(**defaults)  # type: ignore[arg-type]
+
+
+def make_gb_clf_config(**overrides: object) -> GradientBoostingClassifierConfig:
+    """Build a GradientBoostingClassifierConfig with small n_estimators for speed.
+
+    Args:
+        **overrides: Keyword arguments forwarded to GradientBoostingClassifierConfig.
+
+    Returns:
+        Configured GradientBoostingClassifierConfig instance.
+    """
+    defaults: dict[str, object] = {
+        "n_estimators": 20,
+        "learning_rate": 0.1,
+        "max_depth": 4,
+        "min_child_samples": 5,
+        "reg_alpha": 0.0,
+        "reg_lambda": 1.0,
+        "subsample": 0.8,
+        "colsample_bytree": 0.8,
+        "calibration_method": "sigmoid",
+        "calibration_cv": 3,
+        "random_seed": 42,
+    }
+    defaults.update(overrides)
+    return GradientBoostingClassifierConfig(**defaults)  # type: ignore[arg-type]
+
+
 # ---------------------------------------------------------------------------
 # Synthetic data generators
 # ---------------------------------------------------------------------------
@@ -187,6 +256,36 @@ def make_rv_series(
         # AR(1) with strong persistence + positive noise
         rv[i] = 0.005 + 0.85 * rv[i - 1] + 0.005 * abs(rng.standard_normal())
     return rv
+
+
+def make_classification_data(
+    n: int = 300,
+    n_features: int = 5,
+    seed: int = 42,
+) -> tuple[
+    np.ndarray[tuple[int, int], np.dtype[np.float64]],
+    np.ndarray[tuple[int], np.dtype[np.float64]],
+]:
+    """Generate classification data with y in {-1, +1} for classifier tests.
+
+    Uses a linear decision boundary with Gaussian noise so that the
+    problem is learnable but not trivially separable.
+
+    Args:
+        n: Number of samples.
+        n_features: Number of features.
+        seed: Random seed for reproducibility.
+
+    Returns:
+        Tuple of (X, y) where X has shape (n, n_features) and y has
+        shape (n,) with values in {-1, +1}.
+    """
+    rng: np.random.Generator = np.random.default_rng(seed)
+    x: np.ndarray[tuple[int, int], np.dtype[np.float64]] = rng.standard_normal((n, n_features)).astype(np.float64)
+    w: np.ndarray[tuple[int], np.dtype[np.float64]] = rng.standard_normal(n_features).astype(np.float64)
+    logits: np.ndarray[tuple[int], np.dtype[np.float64]] = (x @ w).astype(np.float64)
+    y: np.ndarray[tuple[int], np.dtype[np.float64]] = np.where(logits > 0, 1.0, -1.0).astype(np.float64)
+    return x, y
 
 
 def make_garch_returns(
@@ -269,3 +368,30 @@ def rv_series() -> np.ndarray[tuple[int], np.dtype[np.float64]]:
 def garch_returns() -> np.ndarray[tuple[int], np.dtype[np.float64]]:
     """Return synthetic GARCH returns."""
     return make_garch_returns()
+
+
+@pytest.fixture
+def logistic_config() -> LogisticConfig:
+    """Return a default LogisticConfig for tests."""
+    return make_logistic_config()
+
+
+@pytest.fixture
+def rf_clf_config() -> RandomForestClassifierConfig:
+    """Return a default RandomForestClassifierConfig with small n_estimators."""
+    return make_rf_clf_config()
+
+
+@pytest.fixture
+def gb_clf_config() -> GradientBoostingClassifierConfig:
+    """Return a default GradientBoostingClassifierConfig with small n_estimators."""
+    return make_gb_clf_config()
+
+
+@pytest.fixture
+def classification_data() -> tuple[
+    np.ndarray[tuple[int, int], np.dtype[np.float64]],
+    np.ndarray[tuple[int], np.dtype[np.float64]],
+]:
+    """Return (X, y) classification data with y in {-1, +1}."""
+    return make_classification_data()
