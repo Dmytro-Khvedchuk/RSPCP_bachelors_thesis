@@ -902,6 +902,76 @@ class GradientBoostingClassifierConfig(BaseModel, frozen=True):
         return self
 
 
+class GRUClassifierConfig(BaseModel, frozen=True):
+    """Configuration for the GRU direction classifier with MC Dropout.
+
+    This classifier mirrors the GRU regressor architecture but outputs a
+    binary direction prediction (+1 / -1) via a sigmoid head trained with
+    BCE loss.  Separate from :class:`GRUConfig` because classifier and
+    regressor defaults should evolve independently.
+
+    Attributes:
+        hidden_size: GRU hidden state dimension.
+        num_layers: Number of stacked GRU layers.
+        dropout: Dropout probability (used for MC Dropout at inference).
+        sequence_length: Number of time steps in the input sequence.
+        learning_rate: Optimiser learning rate.
+        n_epochs: Maximum training epochs.
+        batch_size: Training mini-batch size.
+        mc_samples: Number of forward passes for MC Dropout uncertainty.
+        patience: Early stopping patience (epochs without improvement).
+        random_seed: Seed for reproducibility.
+    """
+
+    hidden_size: Annotated[
+        int,
+        PydanticField(default=64, ge=8, description="GRU hidden state dimension"),
+    ]
+
+    num_layers: Annotated[
+        int,
+        PydanticField(default=2, ge=1, description="Number of stacked GRU layers"),
+    ]
+
+    dropout: Annotated[
+        float,
+        PydanticField(default=0.2, ge=0, lt=1, description="Dropout probability for MC Dropout"),
+    ]
+
+    sequence_length: Annotated[
+        int,
+        PydanticField(default=20, ge=2, description="Number of time steps in input sequence"),
+    ]
+
+    learning_rate: Annotated[
+        float,
+        PydanticField(default=1e-3, gt=0, description="Optimiser learning rate"),
+    ]
+
+    n_epochs: Annotated[
+        int,
+        PydanticField(default=100, ge=1, description="Maximum training epochs"),
+    ]
+
+    batch_size: Annotated[
+        int,
+        PydanticField(default=32, ge=1, description="Training mini-batch size"),
+    ]
+
+    mc_samples: Annotated[
+        int,
+        PydanticField(default=50, ge=2, description="MC Dropout forward passes at inference"),
+    ]
+
+    patience: Annotated[
+        int,
+        PydanticField(default=10, ge=1, description="Early stopping patience"),
+    ]
+
+    random_seed: int = 42
+    """Seed for reproducibility."""
+
+
 class RegimeCoverage(BaseModel, frozen=True):
     """Per-regime coverage statistics for conformal intervals.
 
