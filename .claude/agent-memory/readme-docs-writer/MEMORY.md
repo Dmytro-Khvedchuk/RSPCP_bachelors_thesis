@@ -123,6 +123,27 @@ Timeframe enum only has: H1, H4, D1.
 - Signal diversity test: pairwise Jaccard similarity < 0.5 across all 5 strategy pairs
 - Note: strategy/ IStrategy protocol is DIFFERENT from backtest/ IStrategy — batch vs per-bar interface
 
+### forecasting Module (Phase 10–11) — Confirmed Structure
+- `src/app/forecasting/` — domain (protocols.py, value_objects.py), application (14 files), infrastructure (cpcv.py)
+- `src/tests/forecasting/` — ~417 tests, flat structure: conftest.py + 14 test files
+  - Phase 10: test_ridge_baseline.py, test_gradient_boosting.py (reg), test_gru_regressor.py,
+    test_har_rv.py, test_arima_garch.py, test_calibration.py, test_regression_metrics.py, test_value_objects.py
+  - Phase 11: test_classifiers.py (36), test_classification_metrics.py (49), test_sanity_checks.py (26),
+    test_label_overlap.py (51), test_cpcv.py (27)
+- Domain protocols: IDirectionClassifier (fit/predict), IRegressor, IVolatilityForecaster, ICalibrator
+- Domain value objects: DirectionForecast (+1/-1, confidence, horizon), ForecastHorizon StrEnum (H1/H4/H24)
+- Classifier configs: LogisticConfig, RandomForestClassifierConfig, GradientBoostingClassifierConfig, GRUClassifierConfig
+- Naive baseline configs: MajorityConfig, PersistenceConfig, MomentumSignConfig
+- Sanity check results: ShuffledLabelResult, NaiveBenchmarkResult, SanityCheckReport
+- classification_metrics.py: 711 lines — accuracy, AUC-ROC (custom trapezoidal), abstention curve,
+  reliability diagram, ECE, economic accuracy, asymmetric class weighting (crash penalty 1.5×)
+- label_overlap.py: 431 lines — sequential bootstrap, non-overlapping subsampling, Kish N_eff, indicator matrix
+- cpcv.py (infrastructure): 398 lines — CPCV with purging + embargo + cross-asset temporal purging
+- GRU classifier uses MC Dropout for uncertainty; is an intentional negative-result experiment (Grinsztajn et al. 2022)
+- LightGBM classifier calibrated via CalibratedClassifierCV (Platt/isotonic)
+- Shuffled-labels test: DA must collapse to [0.48, 0.52] after permuting labels (Ojala & Garriga 2010)
+- Total test count after Phase 11: ~1,947 (was 1,758 after Phase 10)
+
 ### README Style Decisions
 - No badges (project has no live CI badge URLs)
 - Data flow section as ASCII diagram using boxes and arrows — extend it as new pipeline stages are added
