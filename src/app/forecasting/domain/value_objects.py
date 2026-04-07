@@ -972,6 +972,139 @@ class GRUClassifierConfig(BaseModel, frozen=True):
     """Seed for reproducibility."""
 
 
+# ---------------------------------------------------------------------------
+# Sanity check configs — Naive classifiers
+# ---------------------------------------------------------------------------
+
+
+class MajorityConfig(BaseModel, frozen=True):
+    """Configuration for the majority-class naive classifier.
+
+    Always predicts the most frequent class in the training data.
+
+    Attributes:
+        random_seed: Seed for reproducibility (unused, kept for interface parity).
+    """
+
+    random_seed: int = 42
+    """Seed for reproducibility (unused, kept for interface parity)."""
+
+
+class PersistenceConfig(BaseModel, frozen=True):
+    """Configuration for the persistence (last-value) naive classifier.
+
+    Predicts the last observed direction from training data for all test samples.
+
+    Attributes:
+        random_seed: Seed for reproducibility (unused, kept for interface parity).
+    """
+
+    random_seed: int = 42
+    """Seed for reproducibility (unused, kept for interface parity)."""
+
+
+class MomentumSignConfig(BaseModel, frozen=True):
+    """Configuration for the momentum-sign naive classifier.
+
+    Predicts the sign of a specified momentum column in the feature matrix.
+
+    Attributes:
+        momentum_col_idx: Column index in the feature matrix that contains the
+            momentum signal whose sign determines the predicted direction.
+        random_seed: Seed for reproducibility (unused, kept for interface parity).
+    """
+
+    momentum_col_idx: Annotated[
+        int,
+        PydanticField(default=0, ge=0, description="Column index for the momentum signal"),
+    ]
+
+    random_seed: int = 42
+    """Seed for reproducibility (unused, kept for interface parity)."""
+
+
+# ---------------------------------------------------------------------------
+# Sanity check result containers
+# ---------------------------------------------------------------------------
+
+
+class ShuffledLabelResult(BaseModel, frozen=True):
+    """Result of a shuffled-labels permutation test for a single model.
+
+    If ``mean_da`` falls within ``[0.48, 0.52]``, the pipeline has no
+    detectable data leakage for this model.
+
+    Attributes:
+        model_name: Name of the classifier being tested.
+        n_permutations: Number of label-permutation rounds executed.
+        per_permutation_da: DA achieved on each permutation round.
+        mean_da: Mean DA across all permutation rounds.
+        passed: ``True`` if ``mean_da`` is within ``[0.48, 0.52]``.
+    """
+
+    model_name: str
+    """Name of the classifier being tested."""
+
+    n_permutations: Annotated[
+        int,
+        PydanticField(ge=1, description="Number of label-permutation rounds"),
+    ]
+    """Number of label-permutation rounds executed."""
+
+    per_permutation_da: tuple[float, ...]
+    """DA achieved on each permutation round."""
+
+    mean_da: float
+    """Mean DA across all permutation rounds."""
+
+    passed: bool
+    """True if mean_da is within [0.48, 0.52]."""
+
+
+class NaiveBenchmarkResult(BaseModel, frozen=True):
+    """Result of a naive benchmark evaluation.
+
+    Attributes:
+        benchmark_name: Name of the naive classifier.
+        da: Directional accuracy achieved by the benchmark.
+        n_samples: Number of test samples used for evaluation.
+    """
+
+    benchmark_name: str
+    """Name of the naive classifier."""
+
+    da: float
+    """Directional accuracy achieved by the benchmark."""
+
+    n_samples: Annotated[
+        int,
+        PydanticField(ge=0, description="Number of test samples"),
+    ]
+    """Number of test samples used for evaluation."""
+
+
+class SanityCheckReport(BaseModel, frozen=True):
+    """Aggregated report from all sanity checks.
+
+    Combines shuffled-label permutation tests and naive benchmark evaluations
+    into a single go/no-go decision.
+
+    Attributes:
+        shuffled_results: Results from shuffled-label tests, one per model.
+        naive_results: Results from naive benchmark evaluations.
+        all_passed: ``True`` if **every** shuffled-label test passed.
+    """
+
+    shuffled_results: tuple[ShuffledLabelResult, ...]
+    """Results from shuffled-label tests, one per model."""
+
+    naive_results: tuple[NaiveBenchmarkResult, ...]
+    """Results from naive benchmark evaluations."""
+
+    all_passed: bool
+    """True if every shuffled-label test passed."""
+
+
 class RegimeCoverage(BaseModel, frozen=True):
     """Per-regime coverage statistics for conformal intervals.
 
