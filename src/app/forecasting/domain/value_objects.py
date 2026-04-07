@@ -2,12 +2,123 @@
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Annotated, Self
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict
 from pydantic import Field as PydanticField
 from pydantic import model_validator
+
+
+# ---------------------------------------------------------------------------
+# Forecast horizon & direction enums
+# ---------------------------------------------------------------------------
+
+
+class ForecastHorizon(StrEnum):
+    """Forecast horizon for direction and return predictions.
+
+    Defines the look-ahead period in bars for which a forecast is made.
+
+    Attributes:
+        H1: 1-bar horizon.
+        H4: 4-bar horizon.
+        H24: 24-bar horizon.
+    """
+
+    H1 = "h1"
+    H4 = "h4"
+    H24 = "h24"
+
+
+# ---------------------------------------------------------------------------
+# Classification value objects
+# ---------------------------------------------------------------------------
+
+
+class DirectionForecast(BaseModel, frozen=True):
+    """Predicted direction with confidence from a classification model.
+
+    Attributes:
+        predicted_direction: Predicted direction: +1 (long) or -1 (short).
+        confidence: Predicted probability for the chosen direction, in [0, 1].
+        horizon: Forecast horizon for which this prediction was made.
+    """
+
+    predicted_direction: Annotated[
+        int,
+        PydanticField(description="Predicted direction: +1 (long) or -1 (short)"),
+    ]
+    """Predicted direction: +1 (long) or -1 (short)."""
+
+    confidence: Annotated[
+        float,
+        PydanticField(ge=0.0, le=1.0, description="Probability for the predicted direction"),
+    ]
+    """Predicted probability for the chosen direction, in [0, 1]."""
+
+    horizon: ForecastHorizon
+    """Forecast horizon for which this prediction was made."""
+
+    @model_validator(mode="after")
+    def _direction_valid(self) -> Self:
+        """Ensure predicted_direction is +1 or -1.
+
+        Returns:
+            Validated instance.
+
+        Raises:
+            ValueError: If direction is not +1 or -1.
+        """
+        if self.predicted_direction not in {1, -1}:
+            msg: str = f"predicted_direction must be +1 or -1, got {self.predicted_direction}"
+            raise ValueError(msg)
+        return self
+
+
+class ReturnForecast(BaseModel, frozen=True):
+    """Point estimate of predicted return magnitude with optional uncertainty.
+
+    Attributes:
+        predicted_return: Point estimate of the predicted return.
+        prediction_std: Standard deviation (uncertainty) of the prediction.
+        quantiles: Optional predicted quantile values (e.g. at 5th, 25th, ..., 95th).
+        confidence_interval: Optional (lower, upper) bounds for the prediction.
+    """
+
+    predicted_return: float
+    """Point estimate of the predicted return."""
+
+    prediction_std: Annotated[
+        float,
+        PydanticField(ge=0.0, description="Standard deviation of the prediction"),
+    ]
+    """Standard deviation (uncertainty) of the prediction."""
+
+    quantiles: tuple[float, ...] | None = None
+    """Optional predicted quantile values."""
+
+    confidence_interval: tuple[float, float] | None = None
+    """Optional (lower, upper) bounds for the prediction."""
+
+    @model_validator(mode="after")
+    def _ci_bounds_valid(self) -> Self:
+        """Ensure confidence interval lower <= upper when provided.
+
+        Returns:
+            Validated instance.
+
+        Raises:
+            ValueError: If lower > upper in confidence_interval.
+        """
+        if self.confidence_interval is not None:
+            lower: float = self.confidence_interval[0]
+            upper: float = self.confidence_interval[1]
+            if lower > upper:
+                msg: str = f"confidence_interval lower ({lower}) must be <= upper ({upper})"
+                raise ValueError(msg)
+        return self
 
 
 # ---------------------------------------------------------------------------
@@ -580,6 +691,418 @@ class ResidualDiagnostics(BaseModel, frozen=True):
 
     is_homoscedastic: bool
     """True if Breusch-Pagan p-value >= 0.05."""
+
+
+# ---------------------------------------------------------------------------
+# Model configs — Direction Classifiers
+# ---------------------------------------------------------------------------
+
+
+class LogisticConfig(BaseModel, frozen=True):
+    """Configuration for the logistic regression classification baseline.
+
+    Attributes:
+        c: Inverse of L2 regularisation strength (smaller = stronger).
+        max_iter: Maximum number of solver iterations.
+        class_weight: Class weight strategy (``None`` or ``"balanced"``).
+        random_seed: Seed for reproducibility.
+    """
+
+    c: Annotated[
+        float,
+        PydanticField(default=1.0, gt=0, description="Inverse L2 regularisation strength"),
+    ]
+
+    max_iter: Annotated[
+        int,
+        PydanticField(default=1000, ge=1, description="Maximum solver iterations"),
+    ]
+
+    class_weight: Annotated[
+        str | None,
+        PydanticField(default=None, description="Class weight strategy: None or 'balanced'"),
+    ]
+
+    random_seed: int = 42
+    """Seed for reproducibility."""
+
+    @model_validator(mode="after")
+    def _class_weight_valid(self) -> Self:
+        """Ensure class_weight is None or 'balanced'.
+
+        Returns:
+            Validated instance.
+
+        Raises:
+            ValueError: If class_weight is not None or 'balanced'.
+        """
+        if self.class_weight is not None and self.class_weight != "balanced":
+            msg: str = f"class_weight must be None or 'balanced', got '{self.class_weight}'"
+            raise ValueError(msg)
+        return self
+
+
+class RandomForestClassifierConfig(BaseModel, frozen=True):
+    """Configuration for the Random Forest direction classifier.
+
+    Attributes:
+        n_estimators: Number of trees in the forest.
+        max_depth: Maximum tree depth (``None`` for unlimited).
+        min_samples_leaf: Minimum samples required in a leaf node.
+        max_features: Feature subsampling strategy (``"sqrt"``, ``"log2"``, or a float fraction).
+        class_weight: Class weight strategy (``None`` or ``"balanced"``).
+        random_seed: Seed for reproducibility.
+    """
+
+    n_estimators: Annotated[
+        int,
+        PydanticField(default=200, ge=1, description="Number of trees"),
+    ]
+
+    max_depth: Annotated[
+        int | None,
+        PydanticField(default=None, description="Maximum tree depth (None = unlimited)"),
+    ]
+
+    min_samples_leaf: Annotated[
+        int,
+        PydanticField(default=5, ge=1, description="Minimum samples in a leaf"),
+    ]
+
+    max_features: Annotated[
+        str,
+        PydanticField(default="sqrt", description="Feature subsampling: 'sqrt', 'log2'"),
+    ]
+
+    class_weight: Annotated[
+        str | None,
+        PydanticField(default=None, description="Class weight strategy: None or 'balanced'"),
+    ]
+
+    random_seed: int = 42
+    """Seed for reproducibility."""
+
+    @model_validator(mode="after")
+    def _class_weight_valid(self) -> Self:
+        """Ensure class_weight is None or 'balanced'.
+
+        Returns:
+            Validated instance.
+
+        Raises:
+            ValueError: If class_weight is not None or 'balanced'.
+        """
+        if self.class_weight is not None and self.class_weight != "balanced":
+            msg: str = f"class_weight must be None or 'balanced', got '{self.class_weight}'"
+            raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def _max_features_valid(self) -> Self:
+        """Ensure max_features is a recognised strategy.
+
+        Returns:
+            Validated instance.
+
+        Raises:
+            ValueError: If max_features is not a known strategy.
+        """
+        allowed: set[str] = {"sqrt", "log2"}
+        if self.max_features not in allowed:
+            msg: str = f"max_features must be one of {allowed}, got '{self.max_features}'"
+            raise ValueError(msg)
+        return self
+
+
+class GradientBoostingClassifierConfig(BaseModel, frozen=True):
+    """Configuration for the LightGBM direction classifier with Platt scaling.
+
+    Uses LGBMClassifier with binary objective, post-hoc calibrated via
+    sklearn CalibratedClassifierCV (Platt scaling or isotonic regression).
+
+    Attributes:
+        n_estimators: Number of boosting rounds.
+        learning_rate: Step size shrinkage.
+        max_depth: Maximum tree depth.
+        min_child_samples: Minimum samples in a leaf.
+        reg_alpha: L1 regularisation.
+        reg_lambda: L2 regularisation.
+        subsample: Row subsampling ratio.
+        colsample_bytree: Column subsampling ratio.
+        calibration_method: Calibration method (``"sigmoid"`` for Platt, ``"isotonic"``).
+        calibration_cv: Number of CV folds for calibration.
+        random_seed: Seed for reproducibility.
+    """
+
+    n_estimators: Annotated[
+        int,
+        PydanticField(default=500, ge=10, description="Number of boosting rounds"),
+    ]
+
+    learning_rate: Annotated[
+        float,
+        PydanticField(default=0.05, gt=0, le=1, description="Step size shrinkage"),
+    ]
+
+    max_depth: int = 6
+    """Maximum tree depth."""
+
+    min_child_samples: Annotated[
+        int,
+        PydanticField(default=20, ge=1, description="Minimum samples in a leaf"),
+    ]
+
+    reg_alpha: Annotated[
+        float,
+        PydanticField(default=0.0, ge=0, description="L1 regularisation"),
+    ]
+
+    reg_lambda: Annotated[
+        float,
+        PydanticField(default=1.0, ge=0, description="L2 regularisation"),
+    ]
+
+    subsample: Annotated[
+        float,
+        PydanticField(default=0.8, gt=0, le=1, description="Row subsampling ratio"),
+    ]
+
+    colsample_bytree: Annotated[
+        float,
+        PydanticField(default=0.8, gt=0, le=1, description="Column subsampling ratio"),
+    ]
+
+    calibration_method: Annotated[
+        str,
+        PydanticField(default="sigmoid", description="Calibration: 'sigmoid' (Platt) or 'isotonic'"),
+    ]
+
+    calibration_cv: Annotated[
+        int,
+        PydanticField(default=3, ge=2, description="CV folds for calibration"),
+    ]
+
+    random_seed: int = 42
+    """Seed for reproducibility."""
+
+    @model_validator(mode="after")
+    def _calibration_method_valid(self) -> Self:
+        """Ensure calibration_method is 'sigmoid' or 'isotonic'.
+
+        Returns:
+            Validated instance.
+
+        Raises:
+            ValueError: If calibration_method is not recognised.
+        """
+        allowed: set[str] = {"sigmoid", "isotonic"}
+        if self.calibration_method not in allowed:
+            msg: str = f"calibration_method must be one of {allowed}, got '{self.calibration_method}'"
+            raise ValueError(msg)
+        return self
+
+
+class GRUClassifierConfig(BaseModel, frozen=True):
+    """Configuration for the GRU direction classifier with MC Dropout.
+
+    This classifier mirrors the GRU regressor architecture but outputs a
+    binary direction prediction (+1 / -1) via a sigmoid head trained with
+    BCE loss.  Separate from :class:`GRUConfig` because classifier and
+    regressor defaults should evolve independently.
+
+    Attributes:
+        hidden_size: GRU hidden state dimension.
+        num_layers: Number of stacked GRU layers.
+        dropout: Dropout probability (used for MC Dropout at inference).
+        sequence_length: Number of time steps in the input sequence.
+        learning_rate: Optimiser learning rate.
+        n_epochs: Maximum training epochs.
+        batch_size: Training mini-batch size.
+        mc_samples: Number of forward passes for MC Dropout uncertainty.
+        patience: Early stopping patience (epochs without improvement).
+        random_seed: Seed for reproducibility.
+    """
+
+    hidden_size: Annotated[
+        int,
+        PydanticField(default=64, ge=8, description="GRU hidden state dimension"),
+    ]
+
+    num_layers: Annotated[
+        int,
+        PydanticField(default=2, ge=1, description="Number of stacked GRU layers"),
+    ]
+
+    dropout: Annotated[
+        float,
+        PydanticField(default=0.2, ge=0, lt=1, description="Dropout probability for MC Dropout"),
+    ]
+
+    sequence_length: Annotated[
+        int,
+        PydanticField(default=20, ge=2, description="Number of time steps in input sequence"),
+    ]
+
+    learning_rate: Annotated[
+        float,
+        PydanticField(default=1e-3, gt=0, description="Optimiser learning rate"),
+    ]
+
+    n_epochs: Annotated[
+        int,
+        PydanticField(default=100, ge=1, description="Maximum training epochs"),
+    ]
+
+    batch_size: Annotated[
+        int,
+        PydanticField(default=32, ge=1, description="Training mini-batch size"),
+    ]
+
+    mc_samples: Annotated[
+        int,
+        PydanticField(default=50, ge=2, description="MC Dropout forward passes at inference"),
+    ]
+
+    patience: Annotated[
+        int,
+        PydanticField(default=10, ge=1, description="Early stopping patience"),
+    ]
+
+    random_seed: int = 42
+    """Seed for reproducibility."""
+
+
+# ---------------------------------------------------------------------------
+# Sanity check configs — Naive classifiers
+# ---------------------------------------------------------------------------
+
+
+class MajorityConfig(BaseModel, frozen=True):
+    """Configuration for the majority-class naive classifier.
+
+    Always predicts the most frequent class in the training data.
+
+    Attributes:
+        random_seed: Seed for reproducibility (unused, kept for interface parity).
+    """
+
+    random_seed: int = 42
+    """Seed for reproducibility (unused, kept for interface parity)."""
+
+
+class PersistenceConfig(BaseModel, frozen=True):
+    """Configuration for the persistence (last-value) naive classifier.
+
+    Predicts the last observed direction from training data for all test samples.
+
+    Attributes:
+        random_seed: Seed for reproducibility (unused, kept for interface parity).
+    """
+
+    random_seed: int = 42
+    """Seed for reproducibility (unused, kept for interface parity)."""
+
+
+class MomentumSignConfig(BaseModel, frozen=True):
+    """Configuration for the momentum-sign naive classifier.
+
+    Predicts the sign of a specified momentum column in the feature matrix.
+
+    Attributes:
+        momentum_col_idx: Column index in the feature matrix that contains the
+            momentum signal whose sign determines the predicted direction.
+        random_seed: Seed for reproducibility (unused, kept for interface parity).
+    """
+
+    momentum_col_idx: Annotated[
+        int,
+        PydanticField(default=0, ge=0, description="Column index for the momentum signal"),
+    ]
+
+    random_seed: int = 42
+    """Seed for reproducibility (unused, kept for interface parity)."""
+
+
+# ---------------------------------------------------------------------------
+# Sanity check result containers
+# ---------------------------------------------------------------------------
+
+
+class ShuffledLabelResult(BaseModel, frozen=True):
+    """Result of a shuffled-labels permutation test for a single model.
+
+    If ``mean_da`` falls within ``[0.48, 0.52]``, the pipeline has no
+    detectable data leakage for this model.
+
+    Attributes:
+        model_name: Name of the classifier being tested.
+        n_permutations: Number of label-permutation rounds executed.
+        per_permutation_da: DA achieved on each permutation round.
+        mean_da: Mean DA across all permutation rounds.
+        passed: ``True`` if ``mean_da`` is within ``[0.48, 0.52]``.
+    """
+
+    model_name: str
+    """Name of the classifier being tested."""
+
+    n_permutations: Annotated[
+        int,
+        PydanticField(ge=1, description="Number of label-permutation rounds"),
+    ]
+    """Number of label-permutation rounds executed."""
+
+    per_permutation_da: tuple[float, ...]
+    """DA achieved on each permutation round."""
+
+    mean_da: float
+    """Mean DA across all permutation rounds."""
+
+    passed: bool
+    """True if mean_da is within [0.48, 0.52]."""
+
+
+class NaiveBenchmarkResult(BaseModel, frozen=True):
+    """Result of a naive benchmark evaluation.
+
+    Attributes:
+        benchmark_name: Name of the naive classifier.
+        da: Directional accuracy achieved by the benchmark.
+        n_samples: Number of test samples used for evaluation.
+    """
+
+    benchmark_name: str
+    """Name of the naive classifier."""
+
+    da: float
+    """Directional accuracy achieved by the benchmark."""
+
+    n_samples: Annotated[
+        int,
+        PydanticField(ge=0, description="Number of test samples"),
+    ]
+    """Number of test samples used for evaluation."""
+
+
+class SanityCheckReport(BaseModel, frozen=True):
+    """Aggregated report from all sanity checks.
+
+    Combines shuffled-label permutation tests and naive benchmark evaluations
+    into a single go/no-go decision.
+
+    Attributes:
+        shuffled_results: Results from shuffled-label tests, one per model.
+        naive_results: Results from naive benchmark evaluations.
+        all_passed: ``True`` if **every** shuffled-label test passed.
+    """
+
+    shuffled_results: tuple[ShuffledLabelResult, ...]
+    """Results from shuffled-label tests, one per model."""
+
+    naive_results: tuple[NaiveBenchmarkResult, ...]
+    """Results from naive benchmark evaluations."""
+
+    all_passed: bool
+    """True if every shuffled-label test passed."""
 
 
 class RegimeCoverage(BaseModel, frozen=True):

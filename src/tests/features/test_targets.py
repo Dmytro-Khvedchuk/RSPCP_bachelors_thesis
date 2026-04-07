@@ -14,6 +14,7 @@ from pydantic import ValidationError
 
 from src.app.features.application.targets import (
     compute_all_targets,
+    forward_direction,
     forward_log_return,
     forward_volatility,
     forward_zreturn,
@@ -392,6 +393,8 @@ class TestComputeAllTargets:
             "fwd_vol_4",
             "fwd_zret_1",
             "fwd_zret_4",
+            "fwd_dir_1",
+            "fwd_dir_4",
         }
         assert expected_cols.issubset(set(result.columns))
 
@@ -485,6 +488,8 @@ class TestGetTargetColumnNames:
             "fwd_vol_4",
             "fwd_zret_1",
             "fwd_zret_4",
+            "fwd_dir_1",
+            "fwd_dir_4",
         }
         assert set(names) == expected
 
@@ -493,7 +498,7 @@ class TestGetTargetColumnNames:
         config: TargetConfig = TargetConfig()
         names: list[str] = get_target_column_names(config)
         # Default forward_return_horizons = (1, 4, 24), forward_vol_horizons = (4, 24),
-        # forward_zret_horizons = (1, 4, 24)
+        # forward_zret_horizons = (1, 4, 24), forward_direction_horizons = (1, 4, 24)
         expected: set[str] = {
             "fwd_logret_1",
             "fwd_logret_4",
@@ -503,6 +508,9 @@ class TestGetTargetColumnNames:
             "fwd_zret_1",
             "fwd_zret_4",
             "fwd_zret_24",
+            "fwd_dir_1",
+            "fwd_dir_4",
+            "fwd_dir_24",
         }
         assert set(names) == expected
 
@@ -582,6 +590,7 @@ class TestTargetConfigValidation:
         """Default TargetConfig should be valid."""
         config: TargetConfig = TargetConfig()
         assert config.forward_zret_horizons == (1, 4, 24)
+        assert config.forward_direction_horizons == (1, 4, 24)
         assert config.backward_vol_window == 24
         assert config.winsorize is True
         assert config.winsorize_lower_pct == 0.01
@@ -591,3 +600,176 @@ class TestTargetConfigValidation:
         """Empty forward_zret_horizons should be valid (opt-out)."""
         config: TargetConfig = TargetConfig(forward_zret_horizons=())
         assert config.forward_zret_horizons == ()
+
+    def test_direction_horizons_must_be_positive(self) -> None:
+        """forward_direction_horizons with value < 1 should raise ValueError."""
+        with pytest.raises(ValueError, match="forward_direction_horizons must be >= 1"):
+            TargetConfig(forward_direction_horizons=(0, 4))
+
+    def test_direction_horizons_no_duplicates(self) -> None:
+        """forward_direction_horizons with duplicates should raise ValueError."""
+        with pytest.raises(ValueError, match="duplicates"):
+            TargetConfig(forward_direction_horizons=(4, 4))
+
+    def test_empty_direction_horizons_valid(self) -> None:
+        """Empty forward_direction_horizons should be valid (opt-out)."""
+        config: TargetConfig = TargetConfig(forward_direction_horizons=())
+        assert config.forward_direction_horizons == ()
+
+
+class TestForwardDirection:
+    """Tests for the forward_direction classification target function."""
+
+    def test_forward_direction_known_rising_prices(self) -> None:
+        """Rising prices should produce all +1 direction labels."""
+        prices: list[float] = [100.0, 110.0, 121.0, 133.1, 146.41]
+        df: pl.DataFrame = pl.DataFrame({"close": prices})
+        result: pl.DataFrame = df.with_columns(forward_direction(pl.col("close"), horizon=1).alias("fwd_dir"))
+        vals: list[int | None] = result["fwd_dir"].to_list()
+
+        # Last row is null (no future data)
+        assert vals[4] is None
+
+        # First 4 rows: all rising -> +1
+        for i in range(4):
+            assert vals[i] == 1, f"Expected +1 at index {i}, got {vals[i]}"
+
+    def test_forward_direction_known_falling_prices(self) -> None:
+        """Falling prices should produce all -1 direction labels."""
+        prices: list[float] = [500.0, 450.0, 400.0, 350.0, 300.0]
+        df: pl.DataFrame = pl.DataFrame({"close": prices})
+        result: pl.DataFrame = df.with_columns(forward_direction(pl.col("close"), horizon=1).alias("fwd_dir"))
+        vals: list[int | None] = result["fwd_dir"].to_list()
+
+        # Last row is null
+        assert vals[4] is None
+
+        # First 4 rows: all falling -> -1
+        for i in range(4):
+            assert vals[i] == -1, f"Expected -1 at index {i}, got {vals[i]}"
+
+    def test_forward_direction_zero_return_maps_to_plus_one(self) -> None:
+        """Zero returns (flat prices) should map to +1 by convention."""
+        prices: list[float] = [100.0, 100.0, 100.0, 100.0]
+        df: pl.DataFrame = pl.DataFrame({"close": prices})
+        result: pl.DataFrame = df.with_columns(forward_direction(pl.col("close"), horizon=1).alias("fwd_dir"))
+        vals: list[int | None] = result["fwd_dir"].to_list()
+
+        # Last row null
+        assert vals[3] is None
+
+        # Zero return -> +1
+        for i in range(3):
+            assert vals[i] == 1, f"Expected +1 for zero return at index {i}, got {vals[i]}"
+
+    def test_forward_direction_tail_nulls_match_horizon(self) -> None:
+        """Exactly h rows at the tail must be null for forward_direction."""
+        n: int = 20
+        horizons_to_test: list[int] = [1, 3, 5]
+        df: pl.DataFrame = make_ohlcv_df(n, price_step=1.0)
+
+        for h in horizons_to_test:
+            result: pl.DataFrame = df.with_columns(
+                forward_direction(pl.col("close"), horizon=h).alias("fwd_dir"),
+            )
+            vals: list[int | None] = result["fwd_dir"].to_list()
+            null_count: int = sum(1 for v in vals if v is None)
+            assert null_count == h, f"horizon={h}: expected {h} nulls, got {null_count}"
+
+    def test_forward_direction_h2(self) -> None:
+        """h=2 direction on known prices matches expected signs."""
+        prices: list[float] = [100.0, 110.0, 90.0, 120.0, 80.0]
+        df: pl.DataFrame = pl.DataFrame({"close": prices})
+        result: pl.DataFrame = df.with_columns(forward_direction(pl.col("close"), horizon=2).alias("fwd_dir_2"))
+        vals: list[int | None] = result["fwd_dir_2"].to_list()
+
+        # fwd_dir_2[0] = sign(ln(90/100)) = sign(negative) = -1
+        assert vals[0] == -1
+        # fwd_dir_2[1] = sign(ln(120/110)) = sign(positive) = +1
+        assert vals[1] == 1
+        # fwd_dir_2[2] = sign(ln(80/90)) = sign(negative) = -1
+        assert vals[2] == -1
+        # Last 2 null
+        assert vals[3] is None
+        assert vals[4] is None
+
+    def test_forward_direction_only_plus_minus_one_or_null(self) -> None:
+        """Direction values must be exactly +1, -1, or null."""
+        from src.tests.features.conftest import make_random_walk_df
+
+        df: pl.DataFrame = make_random_walk_df(100, seed=42)
+        result: pl.DataFrame = df.with_columns(forward_direction(pl.col("close"), horizon=1).alias("fwd_dir"))
+        vals: list[int | None] = result["fwd_dir"].to_list()
+
+        for v in vals:
+            assert v in {1, -1, None}, f"Unexpected direction value: {v}"
+
+    def test_forward_direction_sign_matches_forward_return(self) -> None:
+        """Direction label must match sign of forward log return."""
+        from src.tests.features.conftest import make_random_walk_df
+
+        df: pl.DataFrame = make_random_walk_df(100, seed=55, volatility=5.0)
+        result: pl.DataFrame = df.with_columns(
+            forward_log_return(pl.col("close"), horizon=1).alias("fwd_lr"),
+            forward_direction(pl.col("close"), horizon=1).alias("fwd_dir"),
+        )
+        lr_vals: list[float | None] = result["fwd_lr"].to_list()
+        dir_vals: list[int | None] = result["fwd_dir"].to_list()
+
+        for lr, d in zip(lr_vals, dir_vals, strict=True):
+            if lr is None:
+                assert d is None
+            elif lr > 0:
+                assert d == 1
+            elif lr < 0:
+                assert d == -1
+            else:
+                assert d == 1  # zero → +1
+
+    def test_direction_targets_in_compute_all_targets(self) -> None:
+        """Direction target columns should appear in compute_all_targets output."""
+        df: pl.DataFrame = make_ohlcv_df(30, price_step=1.0)
+        config: TargetConfig = make_small_target_config()
+        result: pl.DataFrame = compute_all_targets(df, config)
+
+        dir_cols: list[str] = [c for c in result.columns if c.startswith("fwd_dir_")]
+        assert "fwd_dir_1" in dir_cols
+        assert "fwd_dir_4" in dir_cols
+
+    def test_direction_targets_in_get_target_column_names(self) -> None:
+        """Direction columns should appear in get_target_column_names output."""
+        config: TargetConfig = make_small_target_config()
+        names: list[str] = get_target_column_names(config)
+        dir_names: list[str] = [n for n in names if n.startswith("fwd_dir_")]
+        assert "fwd_dir_1" in dir_names
+        assert "fwd_dir_4" in dir_names
+
+    def test_direction_not_winsorized(self) -> None:
+        """Direction targets must not be winsorized (values stay exactly +1/-1)."""
+        from src.tests.features.conftest import make_random_walk_df
+
+        df: pl.DataFrame = make_random_walk_df(200, seed=99, volatility=15.0)
+        config: TargetConfig = make_small_target_config(winsorize=True)
+        result: pl.DataFrame = compute_all_targets(df, config)
+
+        # Direction columns should only contain +1, -1, or null
+        for col_name in ["fwd_dir_1", "fwd_dir_4"]:
+            vals: list[int | None] = result[col_name].to_list()
+            for v in vals:
+                assert v in {1, -1, None}, f"{col_name}: unexpected value {v}"
+
+    def test_empty_direction_horizons_no_dir_columns(self) -> None:
+        """Empty forward_direction_horizons should produce no fwd_dir columns."""
+        df: pl.DataFrame = make_ohlcv_df(30, price_step=1.0)
+        config: TargetConfig = make_small_target_config(forward_direction_horizons=())
+        result: pl.DataFrame = compute_all_targets(df, config)
+
+        dir_cols: list[str] = [c for c in result.columns if c.startswith("fwd_dir_")]
+        assert len(dir_cols) == 0
+
+    def test_empty_direction_horizons_no_dir_names(self) -> None:
+        """Empty forward_direction_horizons should produce no fwd_dir names."""
+        config: TargetConfig = make_small_target_config(forward_direction_horizons=())
+        names: list[str] = get_target_column_names(config)
+        dir_names: list[str] = [n for n in names if "dir" in n]
+        assert len(dir_names) == 0

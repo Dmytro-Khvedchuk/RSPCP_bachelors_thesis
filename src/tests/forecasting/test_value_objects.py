@@ -2,7 +2,8 @@
 
 Tests PointPrediction, QuantilePrediction, VolatilityForecast,
 ConformalInterval, ReliabilityDiagramResult, ResidualDiagnostics,
-RegimeCoverage containers and all model config validators.
+RegimeCoverage containers, ForecastHorizon, DirectionForecast,
+ReturnForecast, and all model config validators.
 """
 
 from __future__ import annotations
@@ -12,6 +13,8 @@ import pytest
 
 from src.app.forecasting.domain.value_objects import (
     ConformalInterval,
+    DirectionForecast,
+    ForecastHorizon,
     GARCHConfig,
     GradientBoostingConfig,
     GRUConfig,
@@ -21,6 +24,7 @@ from src.app.forecasting.domain.value_objects import (
     RegimeCoverage,
     ReliabilityDiagramResult,
     ResidualDiagnostics,
+    ReturnForecast,
     RidgeConfig,
     VolatilityForecast,
 )
@@ -374,3 +378,193 @@ class TestGARCHConfig:
         config = GARCHConfig(p=2, q=2)
         assert config.p == 2
         assert config.q == 2
+
+
+# ---------------------------------------------------------------------------
+# ForecastHorizon
+# ---------------------------------------------------------------------------
+
+
+class TestForecastHorizon:
+    def test_enum_values(self) -> None:
+        assert ForecastHorizon.H1 == "h1"
+        assert ForecastHorizon.H4 == "h4"
+        assert ForecastHorizon.H24 == "h24"
+
+    def test_all_members(self) -> None:
+        members: list[str] = [h.value for h in ForecastHorizon]
+        assert members == ["h1", "h4", "h24"]
+
+    def test_string_conversion(self) -> None:
+        assert str(ForecastHorizon.H1) == "h1"
+
+    def test_from_value(self) -> None:
+        horizon: ForecastHorizon = ForecastHorizon("h4")
+        assert horizon is ForecastHorizon.H4
+
+
+# ---------------------------------------------------------------------------
+# DirectionForecast
+# ---------------------------------------------------------------------------
+
+
+class TestDirectionForecast:
+    def test_valid_long(self) -> None:
+        forecast = DirectionForecast(
+            predicted_direction=1,
+            confidence=0.75,
+            horizon=ForecastHorizon.H1,
+        )
+        assert forecast.predicted_direction == 1
+        assert forecast.confidence == 0.75
+        assert forecast.horizon == ForecastHorizon.H1
+
+    def test_valid_short(self) -> None:
+        forecast = DirectionForecast(
+            predicted_direction=-1,
+            confidence=0.60,
+            horizon=ForecastHorizon.H24,
+        )
+        assert forecast.predicted_direction == -1
+        assert forecast.confidence == 0.60
+        assert forecast.horizon == ForecastHorizon.H24
+
+    def test_invalid_direction_zero_raises(self) -> None:
+        with pytest.raises(ValueError, match="must be \\+1 or -1"):
+            DirectionForecast(
+                predicted_direction=0,
+                confidence=0.5,
+                horizon=ForecastHorizon.H1,
+            )
+
+    def test_invalid_direction_two_raises(self) -> None:
+        with pytest.raises(ValueError, match="must be \\+1 or -1"):
+            DirectionForecast(
+                predicted_direction=2,
+                confidence=0.5,
+                horizon=ForecastHorizon.H1,
+            )
+
+    def test_confidence_below_zero_raises(self) -> None:
+        with pytest.raises(ValueError, match="greater than or equal to 0"):
+            DirectionForecast(
+                predicted_direction=1,
+                confidence=-0.1,
+                horizon=ForecastHorizon.H1,
+            )
+
+    def test_confidence_above_one_raises(self) -> None:
+        with pytest.raises(ValueError, match="less than or equal to 1"):
+            DirectionForecast(
+                predicted_direction=1,
+                confidence=1.1,
+                horizon=ForecastHorizon.H1,
+            )
+
+    def test_confidence_boundary_zero(self) -> None:
+        forecast = DirectionForecast(
+            predicted_direction=1,
+            confidence=0.0,
+            horizon=ForecastHorizon.H4,
+        )
+        assert forecast.confidence == 0.0
+
+    def test_confidence_boundary_one(self) -> None:
+        forecast = DirectionForecast(
+            predicted_direction=-1,
+            confidence=1.0,
+            horizon=ForecastHorizon.H4,
+        )
+        assert forecast.confidence == 1.0
+
+    def test_frozen_immutable(self) -> None:
+        forecast = DirectionForecast(
+            predicted_direction=1,
+            confidence=0.7,
+            horizon=ForecastHorizon.H1,
+        )
+        with pytest.raises(Exception, match="frozen"):  # noqa: B017
+            forecast.predicted_direction = -1  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# ReturnForecast
+# ---------------------------------------------------------------------------
+
+
+class TestReturnForecast:
+    def test_valid_minimal(self) -> None:
+        forecast = ReturnForecast(
+            predicted_return=0.02,
+            prediction_std=0.01,
+        )
+        assert forecast.predicted_return == 0.02
+        assert forecast.prediction_std == 0.01
+        assert forecast.quantiles is None
+        assert forecast.confidence_interval is None
+
+    def test_valid_with_quantiles(self) -> None:
+        forecast = ReturnForecast(
+            predicted_return=0.015,
+            prediction_std=0.005,
+            quantiles=(0.005, 0.01, 0.015, 0.02, 0.025),
+        )
+        assert forecast.quantiles == (0.005, 0.01, 0.015, 0.02, 0.025)
+
+    def test_valid_with_confidence_interval(self) -> None:
+        forecast = ReturnForecast(
+            predicted_return=0.02,
+            prediction_std=0.01,
+            confidence_interval=(-0.01, 0.05),
+        )
+        assert forecast.confidence_interval == (-0.01, 0.05)
+
+    def test_valid_full(self) -> None:
+        forecast = ReturnForecast(
+            predicted_return=-0.03,
+            prediction_std=0.02,
+            quantiles=(-0.05, -0.03, -0.01),
+            confidence_interval=(-0.07, 0.01),
+        )
+        assert forecast.predicted_return == -0.03
+        assert forecast.prediction_std == 0.02
+        assert forecast.quantiles is not None
+        assert forecast.confidence_interval is not None
+
+    def test_negative_std_raises(self) -> None:
+        with pytest.raises(ValueError, match="greater than or equal to 0"):
+            ReturnForecast(
+                predicted_return=0.01,
+                prediction_std=-0.01,
+            )
+
+    def test_zero_std_valid(self) -> None:
+        forecast = ReturnForecast(
+            predicted_return=0.0,
+            prediction_std=0.0,
+        )
+        assert forecast.prediction_std == 0.0
+
+    def test_ci_lower_gt_upper_raises(self) -> None:
+        with pytest.raises(ValueError, match="lower.*must be <= upper"):
+            ReturnForecast(
+                predicted_return=0.01,
+                prediction_std=0.005,
+                confidence_interval=(0.05, -0.01),
+            )
+
+    def test_ci_equal_bounds_valid(self) -> None:
+        forecast = ReturnForecast(
+            predicted_return=0.0,
+            prediction_std=0.0,
+            confidence_interval=(0.0, 0.0),
+        )
+        assert forecast.confidence_interval == (0.0, 0.0)
+
+    def test_frozen_immutable(self) -> None:
+        forecast = ReturnForecast(
+            predicted_return=0.02,
+            prediction_std=0.01,
+        )
+        with pytest.raises(Exception, match="frozen"):  # noqa: B017
+            forecast.predicted_return = 0.05  # type: ignore[misc]

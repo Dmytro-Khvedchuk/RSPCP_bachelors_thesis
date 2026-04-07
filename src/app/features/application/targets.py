@@ -1,4 +1,4 @@
-"""Forward-looking regression targets -- training labels for ML models.
+"""Forward-looking targets -- regression and classification labels for ML models.
 
 All target functions are stateless and produce Polars expressions that
 use **negative shifts** (future data).  These columns must **never**
@@ -8,6 +8,7 @@ Column naming convention:
     ``fwd_logret_{h}`` -- forward log return at horizon *h*.
     ``fwd_vol_{h}``    -- forward realized volatility at horizon *h*.
     ``fwd_zret_{h}``   -- forward volatility-normalized return at horizon *h*.
+    ``fwd_dir_{h}``    -- forward direction at horizon *h* (+1 or -1).
 
 The ``fwd_`` prefix distinguishes forward-looking targets from
 backward-looking indicators (``logret_{h}``, ``rv_{w}``).
@@ -140,7 +141,47 @@ def forward_zreturn(close: pl.Expr, horizon: int, backward_vol_window: int) -> p
 
 
 # ===================================================================
-# 4. WINSORIZATION
+# 4. FORWARD DIRECTION (CLASSIFICATION TARGET)
+# ===================================================================
+
+
+def forward_direction(close: pl.Expr, horizon: int) -> pl.Expr:
+    r"""Compute forward direction classification label at a given horizon.
+
+    $$d^{\text{fwd}}_t = \text{sign}\!\left(\ln\!\left(\frac{C_{t+h}}{C_t}\right)\right)$$
+
+    Returns +1 for positive or zero returns, -1 for negative returns.
+    Zero returns are mapped to +1 by convention (treat flat as "up").
+
+    The last *horizon* rows will be null because no future data is
+    available.
+
+    Note:
+        Built on top of ``forward_log_return`` to reuse existing logic
+        and maintain consistency.  The ``sign`` function maps 0.0 to 0,
+        so we explicitly replace zeros with +1 via ``pl.when``.
+
+    Args:
+        close: Close price expression (e.g. ``pl.col("close")``).
+        horizon: Number of bars to look ahead (must be >= 1).
+
+    Returns:
+        Polars expression for the forward direction label (+1 or -1).
+    """
+    fwd_ret: pl.Expr = forward_log_return(close, horizon)
+    return (
+        pl.when(fwd_ret > 0.0)
+        .then(pl.lit(1, dtype=pl.Int8))
+        .when(fwd_ret < 0.0)
+        .then(pl.lit(-1, dtype=pl.Int8))
+        .when(fwd_ret.is_null())
+        .then(pl.lit(None, dtype=pl.Int8))
+        .otherwise(pl.lit(1, dtype=pl.Int8))  # zero return → +1
+    )
+
+
+# ===================================================================
+# 5. WINSORIZATION
 # ===================================================================
 
 
@@ -191,7 +232,7 @@ def winsorize_series(
 
 
 # ===================================================================
-# 5. PRIVATE HELPERS
+# 6. PRIVATE HELPERS
 # ===================================================================
 
 
@@ -241,11 +282,31 @@ def _add_forward_zret_targets(config: TargetConfig) -> list[pl.Expr]:
     ]
 
 
+def _add_forward_direction_targets(config: TargetConfig) -> list[pl.Expr]:
+    """Build forward direction classification expressions for all configured horizons.
+
+    Direction targets are categorical (+1/-1) and must NOT be winsorized.
+
+    Args:
+        config: Target configuration.
+
+    Returns:
+        List of aliased forward direction expressions.
+    """
+    close: pl.Expr = pl.col(config.close_col)
+    return [forward_direction(close, h).alias(f"fwd_dir_{h}") for h in config.forward_direction_horizons]
+
+
 def _get_target_col_names(config: TargetConfig) -> list[str]:
-    """Return target column names that will be winsorized.
+    """Return all target column names (regression + classification).
 
     This helper centralizes column-name generation so both the
     winsorization loop and ``get_target_column_names`` stay in sync.
+
+    Note:
+        Direction columns (``fwd_dir_*``) are included in the full list
+        but excluded from winsorization in the orchestrator because they
+        are categorical (+1/-1).
 
     Args:
         config: Target configuration.
@@ -256,11 +317,12 @@ def _get_target_col_names(config: TargetConfig) -> list[str]:
     names: list[str] = [f"fwd_logret_{h}" for h in config.forward_return_horizons]
     names.extend(f"fwd_vol_{h}" for h in config.forward_vol_horizons)
     names.extend(f"fwd_zret_{h}" for h in config.forward_zret_horizons)
+    names.extend(f"fwd_dir_{h}" for h in config.forward_direction_horizons)
     return names
 
 
 # ===================================================================
-# 6. ORCHESTRATOR
+# 7. ORCHESTRATOR
 # ===================================================================
 
 
@@ -268,7 +330,7 @@ def compute_all_targets(
     df: pl.DataFrame,
     config: TargetConfig,
 ) -> pl.DataFrame:
-    """Compute all forward-looking regression targets and append to the DataFrame.
+    """Compute all forward-looking targets (regression + classification) and append to the DataFrame.
 
     This is the main entry point for target construction.  All targets are
     native Polars expressions computed in a single ``with_columns`` call,
@@ -276,7 +338,8 @@ def compute_all_targets(
 
     Winsorization replaces hard-clip bounds with data-driven percentile
     clipping, preserving extreme events (COVID crash, FTX, Luna) while
-    removing distributional outliers.
+    removing distributional outliers.  Direction targets (``fwd_dir_*``)
+    are categorical and are **not** winsorized.
 
     **Important:** This function does NOT drop NaN rows -- that is
     Phase 4C's responsibility (``FeatureMatrixBuilder``).
@@ -298,12 +361,16 @@ def compute_all_targets(
     exprs.extend(_add_forward_return_targets(config))
     exprs.extend(_add_forward_vol_targets(config))
     exprs.extend(_add_forward_zret_targets(config))
+    exprs.extend(_add_forward_direction_targets(config))
     result: pl.DataFrame = df.with_columns(exprs)
 
-    # Step 2: winsorize target columns at configured percentiles
+    # Step 2: winsorize regression target columns at configured percentiles
+    # Direction targets (fwd_dir_*) are categorical (+1/-1) and MUST NOT be winsorized.
     if config.winsorize:
-        target_cols: list[str] = _get_target_col_names(config)
-        for col_name in target_cols:
+        regression_cols: list[str] = [f"fwd_logret_{h}" for h in config.forward_return_horizons]
+        regression_cols.extend(f"fwd_vol_{h}" for h in config.forward_vol_horizons)
+        regression_cols.extend(f"fwd_zret_{h}" for h in config.forward_zret_horizons)
+        for col_name in regression_cols:
             result = winsorize_series(
                 result,
                 col_name,
