@@ -13,7 +13,7 @@ into a trained recommendation system that selects which trading signals to act o
 framework is statistically rigorous: walk-forward cross-validation, Monte Carlo permutation tests,
 and deflated Sharpe ratios guard against overfitting.
 
-**Current state:** Phases 1–11 complete — OHLCV ingestion, López de Prado alternative bars,
+**Current state:** Phases 1–12 complete — OHLCV ingestion, López de Prado alternative bars,
 RC1 research checkpoint, full feature engineering pipeline (21 indicators after Phase 7 audit,
 regression targets, feature matrix builder, and permutation-test validation), statistical
 profiling (distribution, serial dependence, volatility modeling, predictability assessment),
@@ -24,13 +24,19 @@ BuyAndHold + Random baselines, and walk-forward runner with expanding/rolling wi
 volatility targeting, no-trade), the return regression forecasting track — 3 return
 regressors (Ridge baseline, LightGBM quantile with isotonic correction, GRU + MC Dropout),
 2 volatility forecasters (HAR-RV, ARIMA-GARCH(1,1)), ACI conformal prediction calibration,
-and standalone regression metrics (MAE, RMSE, R², CRPS, QLIKE, Mincer-Zarnowitz R²), and the
+and standalone regression metrics (MAE, RMSE, R², CRPS, QLIKE, Mincer-Zarnowitz R²), the
 direction classification forecasting track — 4 classifiers (Logistic, Random Forest, LightGBM
 with Platt/isotonic calibration, GRU with MC Dropout), 3 naive baselines (Majority, Persistence,
 MomentumSign), CPCV splitter with purging + embargo + cross-asset temporal purging, classification
 metrics with abstention curves, reliability diagrams, ECE, and economic accuracy, label overlap
-handling (sequential bootstrap, Kish N_eff), and shuffled-labels sanity checks.
-~1,947 tests passing. Phase 12 (ML recommendation system) is next.
+handling (sequential bootstrap, Kish N_eff), and shuffled-labels sanity checks, and the ML
+recommendation system — LightGBM generalised meta-labeling with Kelly-adjacent position sizing,
+expanding walk-forward pipeline (multi-layer temporal purging, L1 OOS predictions as L2 features),
+split conformal deployment decisions, Lo 2002 corrected Sharpe metrics with sizing-value
+quantification, structured ablation with Diebold-Mariano tests across classifier/regressor/regime
+feature groups, and 5 baseline recommenders (Random, AllAssets, ClassifierOnly, RegressorOnly,
+EqualWeight).
+~2,176 tests passing. Phase 14 (Monte Carlo, PBO, DSR) is next.
 
 ---
 
@@ -63,7 +69,7 @@ dependencies between layers. All data classes use Pydantic `BaseModel` — no ra
 | 9 | `strategy/` | 5 batch strategies (momentum, mean-reversion, breakout, vol-targeting, no-trade) | Done |
 | 10 | `forecasting/` | Return regression (SIZE) — Ridge, LightGBM quantile, GRU+MC Dropout, HAR-RV, ARIMA-GARCH, ACI calibration | Done |
 | 11 | `forecasting/` | Direction classification (SIDE) — Logistic, RF, LightGBM, GRU, CPCV, classification metrics, label overlap, sanity checks | Done |
-| 12 | `recommendation/` | ML recommendation system (meta-labeling) | Next |
+| 12 | `recommendation/` | LightGBM generalised meta-labeling, walk-forward pipeline, conformal deployment, ablation | Done |
 | 14 | `evaluation/` | Monte Carlo, PBO, DSR, MCS | Planned |
 | 16 | `live/` | Live paper trading engine | Planned |
 | 17 | `dashboard/` | FastAPI + Streamlit/Dash | Planned |
@@ -115,6 +121,11 @@ RSPCP_bachelors_thesis/
 │   │   │   │                    # MomentumSignClassifier, classification_metrics.py,
 │   │   │   │                    # label_overlap.py, sanity_checks.py
 │   │   │   └── infrastructure/  # cpcv.py (CPCV splitter with purging + embargo)
+│   │   ├── recommendation/      # Phase 12 — ML recommendation system (generalised meta-labeling)
+│   │   │   ├── domain/          # IRecommender, RecommendationInput, Recommendation, RecommenderConfig
+│   │   │   └── application/     # GradientBoostingRecommender, baseline_recommenders.py,
+│   │   │                        # feature_builder.py, label_builder.py, pipeline.py,
+│   │   │                        # metrics.py, ablation.py
 │   │   ├── ingestion/           # Phase 1 — Binance OHLCV ingestion
 │   │   │   ├── domain/          # BinanceKlineInterval, FetchRequest, exceptions, IMarketDataFetcher
 │   │   │   ├── application/     # IngestionService, IngestAssetCommand, IngestUniverseCommand
@@ -136,6 +147,8 @@ RSPCP_bachelors_thesis/
 │       │                        # calibration, regression metrics, value objects,
 │       │                        # classifiers (Logistic/RF/LightGBM/GRU), naive baselines,
 │       │                        # classification metrics, label overlap, CPCV, sanity checks
+│       ├── recommendation/      # 229 tests — domain, feature builder, label builder,
+│       │                        # recommender models, pipeline, metrics & ablation
 │       ├── bars/                # 260 tests — domain, application, infrastructure, statistical
 │       ├── features/            # 195 tests — indicators, targets, matrix, validation, leakage
 │       ├── profiling/           # 188 tests — distribution, serial dependence, volatility,
