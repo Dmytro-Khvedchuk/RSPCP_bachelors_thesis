@@ -432,13 +432,14 @@ class TestFeatureBuilderGracefulDegradation:
     """Tests for graceful degradation with missing upstream inputs."""
 
     def test_all_none_returns_market_only(self):
-        """All optional inputs as None returns only market features + regime."""
+        """All optional inputs as None returns market features + rolling perm entropy."""
         mf = make_market_features(10)
         builder = RecommenderFeatureBuilder()
 
         result = builder.build_features(mf)
 
-        assert set(result.columns) == {"timestamp", "close", "volatility"}
+        # rolling_perm_entropy is computed from close when present
+        assert set(result.columns) == {"timestamp", "close", "volatility", "rolling_perm_entropy"}
 
     def test_full_feature_set(self):
         """All inputs provided produces the richest feature set."""
@@ -474,6 +475,7 @@ class TestFeatureBuilderGracefulDegradation:
             strategy_returns=strat,
             btc_returns=btc,
             universe_returns=universe,
+            asset_symbol="ETHUSDT",
         )
 
         # Should have many feature columns
@@ -487,4 +489,220 @@ class TestFeatureBuilderGracefulDegradation:
         assert "rolling_win_rate" in result.columns
         assert "btc_lagged_return" in result.columns
         assert "relative_strength" in result.columns
+        # New features from #114
+        assert "vol_qlike_residual" in result.columns
+        assert "rolling_perm_entropy" in result.columns
+        assert "btc_beta" in result.columns
+        assert "mi_significant_regime" in result.columns
         assert len(result) == n
+
+
+# ---------------------------------------------------------------------------
+# Feature builder — QLIKE residual (Phase 12C / #114)
+# ---------------------------------------------------------------------------
+
+
+class TestFeatureBuilderQLIKE:
+    """Tests for QLIKE residual computation in vol features."""
+
+    def test_qlike_residual_computed(self):
+        """QLIKE residual is computed when both vol_predicted and vol_actual are present."""
+        n = 20
+        predicted = [0.02 + 0.001 * i for i in range(n)]
+        actual = [0.019 + 0.001 * i for i in range(n)]
+        mf = make_market_features(n)
+        vol = make_vol_forecasts(n, vol_predicted=predicted, vol_actual=actual)
+        config = RecommenderFeatureConfig(rolling_window=5)
+        builder = RecommenderFeatureBuilder(config)
+
+        result = builder.build_features(mf, vol_forecasts=vol)
+
+        assert "vol_qlike_residual" in result.columns
+        qlike = result.get_column("vol_qlike_residual")
+        # QLIKE(sigma, sigma) = sigma/sigma - ln(sigma/sigma) - 1 = 1 - 0 - 1 = 0
+        # Since predicted != actual, values should be > 0 (QLIKE property)
+        non_null = qlike.drop_nulls().to_list()
+        assert len(non_null) > 0
+        assert all(v >= 0.0 for v in non_null)
+
+    def test_qlike_not_without_vol_actual(self):
+        """Without vol_actual, QLIKE residual is not computed."""
+        mf = make_market_features(10)
+        vol = make_vol_forecasts(10)
+        builder = RecommenderFeatureBuilder()
+
+        result = builder.build_features(mf, vol_forecasts=vol)
+
+        assert "vol_qlike_residual" not in result.columns
+
+    def test_qlike_handles_zero_actual(self):
+        """QLIKE handles vol_actual == 0 gracefully (null, not crash)."""
+        n = 10
+        predicted = [0.02] * n
+        actual = [0.0] * 5 + [0.02] * 5  # first 5 are zero
+        mf = make_market_features(n)
+        vol = make_vol_forecasts(n, vol_predicted=predicted, vol_actual=actual)
+        config = RecommenderFeatureConfig(rolling_window=3)
+        builder = RecommenderFeatureBuilder(config)
+
+        result = builder.build_features(mf, vol_forecasts=vol)
+
+        assert "vol_qlike_residual" in result.columns
+        # Should not raise — zeros handled via null guard
+
+
+# ---------------------------------------------------------------------------
+# Feature builder — rolling permutation entropy (Phase 12C / #114)
+# ---------------------------------------------------------------------------
+
+
+class TestFeatureBuilderPermEntropy:
+    """Tests for rolling permutation entropy in regime features."""
+
+    def test_perm_entropy_computed_from_close(self):
+        """Rolling permutation entropy is computed when close prices are present."""
+        n = 30
+        mf = make_market_features(n)
+        config = RecommenderFeatureConfig(rolling_window=10)
+        builder = RecommenderFeatureBuilder(config)
+
+        result = builder.build_features(mf)
+
+        assert "rolling_perm_entropy" in result.columns
+        pe = result.get_column("rolling_perm_entropy")
+        non_null = pe.drop_nulls().to_list()
+        assert len(non_null) > 0
+        # PE is normalised to [0, 1]
+        assert all(0.0 <= v <= 1.0 for v in non_null)
+
+    def test_perm_entropy_config(self):
+        """Permutation entropy config parameters are respected."""
+        config = RecommenderFeatureConfig(perm_entropy_dim=4, perm_entropy_delay=2)
+        assert config.perm_entropy_dim == 4
+        assert config.perm_entropy_delay == 2
+
+    def test_constant_prices_low_entropy(self):
+        """Constant prices (zero returns) yield near-zero entropy."""
+        n = 30
+        mf = pl.DataFrame(
+            {
+                "timestamp": [BASE_TS + i * ONE_HOUR for i in range(n)],
+                "close": [100.0] * n,
+                "volatility": [0.01] * n,
+            }
+        )
+        config = RecommenderFeatureConfig(rolling_window=10)
+        builder = RecommenderFeatureBuilder(config)
+
+        result = builder.build_features(mf)
+
+        pe = result.get_column("rolling_perm_entropy")
+        non_null = pe.drop_nulls().to_list()
+        # Constant returns → only one pattern → entropy should be 0 or very low
+        if len(non_null) > 0:
+            assert all(v <= 0.1 for v in non_null)
+
+
+# ---------------------------------------------------------------------------
+# Feature builder — beta to BTC (Phase 12C / #114)
+# ---------------------------------------------------------------------------
+
+
+class TestFeatureBuilderBTCBeta:
+    """Tests for BTC beta in cross-asset features."""
+
+    def test_btc_beta_computed(self):
+        """Beta to BTC is computed for altcoins."""
+        n = 30
+        mf = make_market_features(n)
+        btc = pl.DataFrame(
+            {
+                "timestamp": [BASE_TS + i * ONE_HOUR for i in range(n)],
+                "btc_return": [0.001 * ((-1) ** i) for i in range(n)],
+            }
+        )
+        config = RecommenderFeatureConfig(rolling_window=10)
+        builder = RecommenderFeatureBuilder(config)
+
+        result = builder.build_features(mf, btc_returns=btc, asset_symbol="ETHUSDT")
+
+        assert "btc_beta" in result.columns
+        beta = result.get_column("btc_beta")
+        non_null = beta.drop_nulls().to_list()
+        assert len(non_null) > 0
+
+    def test_btc_beta_not_for_btc_self(self):
+        """BTC beta is skipped when asset is BTC itself."""
+        n = 30
+        mf = make_market_features(n)
+        btc = pl.DataFrame(
+            {
+                "timestamp": [BASE_TS + i * ONE_HOUR for i in range(n)],
+                "btc_return": [0.001 * i for i in range(n)],
+            }
+        )
+        builder = RecommenderFeatureBuilder()
+
+        result = builder.build_features(mf, btc_returns=btc, asset_symbol="BTCUSDT")
+
+        assert "btc_beta" not in result.columns
+        assert "btc_lagged_return" not in result.columns
+        assert "rolling_cross_corr" not in result.columns
+
+
+# ---------------------------------------------------------------------------
+# Feature builder — asset_symbol guard (Phase 12C / #114)
+# ---------------------------------------------------------------------------
+
+
+class TestFeatureBuilderAssetSymbolGuard:
+    """Tests for asset_symbol parameter controlling BTC self-reference."""
+
+    def test_btc_gets_no_btc_features(self):
+        """BTC asset does not get BTC-lagged return or beta."""
+        n = 20
+        mf = make_market_features(n)
+        btc = pl.DataFrame(
+            {
+                "timestamp": [BASE_TS + i * ONE_HOUR for i in range(n)],
+                "btc_return": [0.001] * n,
+            }
+        )
+        builder = RecommenderFeatureBuilder()
+
+        result = builder.build_features(mf, btc_returns=btc, asset_symbol="BTCUSDT")
+
+        assert "btc_lagged_return" not in result.columns
+        assert "btc_beta" not in result.columns
+
+    def test_altcoin_gets_btc_features(self):
+        """Altcoin (ETHUSDT) gets BTC-lagged return and beta."""
+        n = 20
+        mf = make_market_features(n)
+        btc = pl.DataFrame(
+            {
+                "timestamp": [BASE_TS + i * ONE_HOUR for i in range(n)],
+                "btc_return": [0.001] * n,
+            }
+        )
+        builder = RecommenderFeatureBuilder()
+
+        result = builder.build_features(mf, btc_returns=btc, asset_symbol="ETHUSDT")
+
+        assert "btc_lagged_return" in result.columns
+
+    def test_no_asset_symbol_allows_btc_features(self):
+        """When asset_symbol is None, BTC features are added (backwards compat)."""
+        n = 20
+        mf = make_market_features(n)
+        btc = pl.DataFrame(
+            {
+                "timestamp": [BASE_TS + i * ONE_HOUR for i in range(n)],
+                "btc_return": [0.001] * n,
+            }
+        )
+        builder = RecommenderFeatureBuilder()
+
+        result = builder.build_features(mf, btc_returns=btc)
+
+        assert "btc_lagged_return" in result.columns
