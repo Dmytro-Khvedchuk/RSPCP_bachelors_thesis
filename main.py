@@ -12,7 +12,7 @@ def main() -> None:
     """Start of the program."""
     setup_logging(level="DEBUG")
 
-    logger.info("Starting RSPCP bachelors thesis application")
+    logger.info("Starting GML-RS bachelor's thesis application")
 
     settings = DatabaseSettings()
     with ConnectionManager(settings):
