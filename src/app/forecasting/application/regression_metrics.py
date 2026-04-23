@@ -431,20 +431,49 @@ def compute_dc_mae(
     directional accuracy and is the primary regression metric for this
     thesis.
 
-    Note:
-        Requires Phase 11 classifier to produce the ``direction_correct``
-        mask.  This stub will be replaced in Phase 13 integration.
-
     Args:
         actuals: Observed values of shape ``(n_samples,)``.
         predictions: Predicted magnitudes of shape ``(n_samples,)``.
         direction_correct: Boolean mask of shape ``(n_samples,)`` indicating
             which samples had correct directional predictions.
 
+    Returns:
+        Mean absolute error restricted to direction-correct samples.
+
     Raises:
-        NotImplementedError: Always — requires Phase 11 classifier.
+        ValueError: If arrays are empty, lengths differ, or no direction-correct
+            samples exist.
     """
-    raise NotImplementedError("DC-MAE requires Phase 11 classifier — available in Phase 13 integration")
+    n: int = actuals.shape[0]
+    if n == 0:
+        msg: str = "actuals must contain at least one sample"
+        raise ValueError(msg)
+    if predictions.shape[0] != n:
+        msg = f"predictions length {predictions.shape[0]} != actuals length {n}"
+        raise ValueError(msg)
+    if direction_correct.shape[0] != n:
+        msg = f"direction_correct length {direction_correct.shape[0]} != actuals length {n}"
+        raise ValueError(msg)
+
+    n_correct: int = int(np.sum(direction_correct))
+    if n_correct == 0:
+        msg = "no direction-correct samples — DC-MAE is undefined"
+        raise ValueError(msg)
+
+    residuals: np.ndarray[tuple[int], np.dtype[np.float64]] = np.abs(
+        actuals[direction_correct] - predictions[direction_correct]
+    )
+    dc_mae: float = float(np.mean(residuals))
+
+    logger.debug(
+        "DC-MAE: {:.6f} (n_correct={}/{}, fraction={:.4f})",
+        dc_mae,
+        n_correct,
+        n,
+        n_correct / n,
+    )
+
+    return dc_mae
 
 
 def compute_dc_rmse(
@@ -458,20 +487,49 @@ def compute_dc_rmse(
     prediction was correct.  Complements DC-MAE by penalising large
     magnitude errors more heavily.
 
-    Note:
-        Requires Phase 11 classifier to produce the ``direction_correct``
-        mask.  This stub will be replaced in Phase 13 integration.
-
     Args:
         actuals: Observed values of shape ``(n_samples,)``.
         predictions: Predicted magnitudes of shape ``(n_samples,)``.
         direction_correct: Boolean mask of shape ``(n_samples,)`` indicating
             which samples had correct directional predictions.
 
+    Returns:
+        Root mean squared error restricted to direction-correct samples.
+
     Raises:
-        NotImplementedError: Always — requires Phase 11 classifier.
+        ValueError: If arrays are empty, lengths differ, or no direction-correct
+            samples exist.
     """
-    raise NotImplementedError("DC-RMSE requires Phase 11 classifier — available in Phase 13 integration")
+    n: int = actuals.shape[0]
+    if n == 0:
+        msg: str = "actuals must contain at least one sample"
+        raise ValueError(msg)
+    if predictions.shape[0] != n:
+        msg = f"predictions length {predictions.shape[0]} != actuals length {n}"
+        raise ValueError(msg)
+    if direction_correct.shape[0] != n:
+        msg = f"direction_correct length {direction_correct.shape[0]} != actuals length {n}"
+        raise ValueError(msg)
+
+    n_correct: int = int(np.sum(direction_correct))
+    if n_correct == 0:
+        msg = "no direction-correct samples — DC-RMSE is undefined"
+        raise ValueError(msg)
+
+    squared_errors: np.ndarray[tuple[int], np.dtype[np.float64]] = (
+        actuals[direction_correct] - predictions[direction_correct]
+    ) ** 2
+    dc_rmse: float = float(np.sqrt(np.mean(squared_errors)))
+
+    logger.debug(
+        "DC-RMSE: {:.6f} (n_correct={}/{}, fraction={:.4f})",
+        dc_rmse,
+        n_correct,
+        n,
+        n_correct / n,
+    )
+
+    return dc_rmse
 
 
 def compute_wdl(
@@ -505,26 +563,109 @@ def compute_pdr(
     actuals: np.ndarray[tuple[int], np.dtype[np.float64]],
     predictions: np.ndarray[tuple[int], np.dtype[np.float64]],
     direction_correct: np.ndarray[tuple[int], np.dtype[np.bool_]],
+    magnitude_threshold: float = 0.01,
+    realized_threshold: float = 0.005,
 ) -> float:
-    """Compute Profit-to-Drawdown Ratio (PDR).
+    """Compute Prediction Directional Reliability (PDR).
 
-    PDR measures the ratio of cumulative profits on direction-correct
-    trades to the maximum drawdown on direction-incorrect trades.
+    PDR measures: when the classifier says "up" AND the regressor predicts
+    magnitude above ``magnitude_threshold``, how often is the realized
+    return positive and above ``realized_threshold``?
 
-    Note:
-        Requires Phase 11 classifier and Phase 8 backtest engine.
-        This stub will be replaced in Phase 13 integration.
+    This captures the *reliability of confident joint predictions* — exactly
+    the operating regime of the recommendation system.
 
     Args:
-        actuals: Observed values of shape ``(n_samples,)``.
-        predictions: Predicted magnitudes of shape ``(n_samples,)``.
+        actuals: Observed returns of shape ``(n_samples,)``.
+        predictions: Predicted return magnitudes of shape ``(n_samples,)``.
         direction_correct: Boolean mask of shape ``(n_samples,)`` indicating
-            which samples had correct directional predictions.
+            which samples had correct directional predictions from the
+            classifier.
+        magnitude_threshold: Minimum absolute predicted magnitude to consider
+            the regressor "confident" (default 1%).
+        realized_threshold: Minimum realized absolute return to count as a
+            "successful" prediction (default 0.5%).
+
+    Returns:
+        Fraction of confident joint predictions that were successful.
+        Returns 0.0 if no predictions exceed the magnitude threshold.
 
     Raises:
-        NotImplementedError: Always — requires Phase 11 classifier.
+        ValueError: If arrays are empty or lengths differ.
     """
-    raise NotImplementedError("PDR requires Phase 11 classifier — available in Phase 13 integration")
+    n: int = actuals.shape[0]
+    if n == 0:
+        msg: str = "actuals must contain at least one sample"
+        raise ValueError(msg)
+    if predictions.shape[0] != n or direction_correct.shape[0] != n:
+        msg = "all arrays must have the same length"
+        raise ValueError(msg)
+
+    # Confident predictions: classifier correct AND regressor magnitude > threshold
+    confident_mask: np.ndarray[tuple[int], np.dtype[np.bool_]] = direction_correct & (
+        np.abs(predictions) > magnitude_threshold
+    )
+
+    n_confident: int = int(np.sum(confident_mask))
+    if n_confident == 0:
+        logger.debug("PDR: no confident predictions above threshold {:.4f}", magnitude_threshold)
+        return 0.0
+
+    # Success: realized return has same sign AND exceeds realized threshold
+    confident_actuals: np.ndarray[tuple[int], np.dtype[np.float64]] = actuals[confident_mask]
+    confident_preds: np.ndarray[tuple[int], np.dtype[np.float64]] = predictions[confident_mask]
+
+    same_sign: np.ndarray[tuple[int], np.dtype[np.bool_]] = np.sign(confident_actuals) == np.sign(confident_preds)
+    exceeds_threshold: np.ndarray[tuple[int], np.dtype[np.bool_]] = np.abs(confident_actuals) > realized_threshold
+
+    successful: np.ndarray[tuple[int], np.dtype[np.bool_]] = same_sign & exceeds_threshold
+    pdr: float = float(np.mean(successful))
+
+    logger.debug(
+        "PDR: {:.4f} (n_confident={}/{}, mag_thresh={:.4f}, real_thresh={:.4f})",
+        pdr,
+        n_confident,
+        n,
+        magnitude_threshold,
+        realized_threshold,
+    )
+
+    return pdr
+
+
+def _lo_2002_correction(
+    pnl_series: np.ndarray[tuple[int], np.dtype[np.float64]],
+    max_lags: int,
+) -> float:
+    """Compute the Lo (2002) autocorrelation correction factor.
+
+    The correction adjusts the Sharpe ratio for serial correlation in
+    P&L returns: ``SR_corrected = SR_raw / sqrt(1 + 2 * sum(rho_k))``.
+
+    Args:
+        pnl_series: Net P&L series of shape ``(n,)``.
+        max_lags: Maximum number of autocorrelation lags to include.
+
+    Returns:
+        Correction factor (>= 1.0 for positively autocorrelated series).
+    """
+    if max_lags <= 0:
+        return 1.0
+
+    mean_pnl: float = float(np.mean(pnl_series))
+    centered: np.ndarray[tuple[int], np.dtype[np.float64]] = (pnl_series - mean_pnl).astype(np.float64)
+    var_pnl: float = float(np.var(centered, ddof=0))
+
+    if var_pnl < _EPSILON:
+        return 1.0
+
+    rho_sum: float = 0.0
+    for lag in range(1, max_lags + 1):
+        autocov: float = float(np.mean(centered[lag:] * centered[:-lag]))
+        rho_sum += autocov / var_pnl
+
+    denominator: float = 1.0 + 2.0 * rho_sum
+    return float(np.sqrt(denominator)) if denominator > _EPSILON else 1.0
 
 
 def compute_economic_sharpe(
@@ -536,21 +677,67 @@ def compute_economic_sharpe(
     """Compute the Economic Sharpe Ratio from combined predictions.
 
     The Economic Sharpe treats each prediction as a trading signal,
-    computes net P&L after transaction costs, and reports the annualised
-    Sharpe with Lo (2002) autocorrelation correction.
+    computes net P&L after transaction costs, and reports the Sharpe
+    ratio with Lo (2002) autocorrelation correction for IID violation.
 
-    Note:
-        Requires Phase 11 classifier for directional predictions and
-        Phase 8 backtest engine for realistic P&L simulation.
-        This stub will be replaced in Phase 13 integration.
+    Strategy logic:
+        - Position = ``sign(direction_prediction)`` (flat when direction = 0)
+        - Per-bar P&L = ``position * actual_return``
+        - Round-trip cost incurred on every position change:
+          ``cost = transaction_cost * |position_change|``
+        - Sharpe = ``mean(net_pnl) / std(net_pnl)``
+        - Lo (2002) correction: ``SR_corrected = SR / sqrt(1 + 2 * sum(rho_k))``
 
     Args:
         actuals: Observed returns of shape ``(n_samples,)``.
-        predictions: Predicted magnitudes of shape ``(n_samples,)``.
-        direction_predictions: Directional predictions of shape ``(n_samples,)``.
+        predictions: Predicted magnitudes of shape ``(n_samples,)``
+            (used for position sizing in future extensions; currently unused
+            beyond direction).
+        direction_predictions: Directional predictions of shape ``(n_samples,)``
+            with values +1, -1, or 0.
         transaction_cost: One-way transaction cost (default 10 bps).
 
+    Returns:
+        Economic Sharpe ratio (not annualised — per-bar basis).
+        Returns 0.0 if net P&L has zero variance.
+
     Raises:
-        NotImplementedError: Always — requires Phase 11 classifier.
+        ValueError: If arrays are empty or lengths differ.
     """
-    raise NotImplementedError("Economic Sharpe requires Phase 11 classifier — available in Phase 13 integration")
+    n: int = actuals.shape[0]
+    if n == 0:
+        msg: str = "actuals must contain at least one sample"
+        raise ValueError(msg)
+    if predictions.shape[0] != n or direction_predictions.shape[0] != n:
+        msg = "all arrays must have the same length"
+        raise ValueError(msg)
+
+    # Positions: sign of direction prediction
+    positions: np.ndarray[tuple[int], np.dtype[np.float64]] = np.sign(direction_predictions)
+
+    # Net P&L = gross P&L - transaction costs on position changes
+    gross_pnl: np.ndarray[tuple[int], np.dtype[np.float64]] = (positions * actuals).astype(np.float64)
+    costs: np.ndarray[tuple[int], np.dtype[np.float64]] = (
+        np.abs(np.diff(positions, prepend=0.0)) * transaction_cost
+    ).astype(np.float64)
+    net_pnl: np.ndarray[tuple[int], np.dtype[np.float64]] = (gross_pnl - costs).astype(np.float64)
+
+    mean_pnl: float = float(np.mean(net_pnl))
+    std_pnl: float = float(np.std(net_pnl, ddof=1)) if n > 1 else 0.0
+
+    if std_pnl < _EPSILON:
+        logger.debug("Economic Sharpe: zero variance in net P&L")
+        return 0.0
+
+    raw_sharpe: float = mean_pnl / std_pnl
+    correction: float = _lo_2002_correction(net_pnl, max_lags=min(5, n // 4))
+    corrected_sharpe: float = raw_sharpe / correction if correction > _EPSILON else raw_sharpe
+
+    logger.debug(
+        "Economic Sharpe: raw={:.4f}, corrected={:.4f}, lo_correction={:.4f}",
+        raw_sharpe,
+        corrected_sharpe,
+        correction,
+    )
+
+    return corrected_sharpe

@@ -1,7 +1,7 @@
 [project]
-name = "rspcp-bachelors-thesis"
+name = "gml-rs-bachelors-thesis"
 version = "0.1.0"
-description = "Add your description here"
+description = "Recommendation System for Cryptocurrency Trading Strategy Deployment Based on Generalized Meta-Labeling — bachelor's thesis."
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
@@ -145,6 +145,7 @@ convention = "google"
     "ANN",     # research code uses untyped third-party libs (pandas, statsmodels, scipy, bokeh)
     "PLR2004", # magic values in research validation/config code are acceptable
     "PLR0914", # research analysis functions legitimately use many local variables
+    "PLR0915", # research analysis functions legitimately use many statements
     "PLR6301", # research analyzers are stateless classes with no-self methods
 ]
 "research/**/*.ipynb" = [
@@ -162,11 +163,15 @@ convention = "google"
     "F404",    # from __future__ imports across cells are inherent to notebooks
     "F811",    # re-imports across cells are intentional (cell independence)
     "F821",    # cross-cell variable references are inherent to notebook execution
+    "N803",    # uppercase argument names (X, Y) are ML convention
     "N806",    # uppercase variable names (X, N) are ML convention
+    "N816",    # mixedCase globals (test_X, pooled_X) are ML convention
     "PD002",   # .applymap() used for styled DataFrame rendering
     "PERF401", # list comprehension vs loop — readability preferred in notebooks
+    "PLR0913", # many arguments in helper functions are common in notebooks
     "PLR0914", # many local variables in analysis cells are expected
     "PLR0915", # many statements in analysis cells are expected
+    "PLR0917", # many positional arguments in helper functions are common in notebooks
     "PLR2004", # magic values in notebook analysis cells are expected
     "PLR6104", # augmented assignment style — not enforced in notebooks
     "PLR6201", # set literal vs tuple — not enforced in notebooks

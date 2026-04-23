@@ -315,3 +315,17 @@ container_logs_*
 logs/
 legacy_project/
 internal/
+
+.claude/
+plan.md
+
+research/**/*.html
+research/**/*.pkl
+
+research/**/*.md
+
+final_thesis
+CLAUDE.md
+IMPLEMENTATION_PLAN.md
+.ruff_cache
+data
