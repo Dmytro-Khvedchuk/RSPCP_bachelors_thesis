@@ -327,3 +327,5 @@ research/**/*.md
 final_thesis
 CLAUDE.md
 IMPLEMENTATION_PLAN.md
+.ruff_cache
+data
