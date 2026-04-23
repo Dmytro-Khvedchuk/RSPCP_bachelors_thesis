@@ -325,5 +325,5 @@ research/**/*.pkl
 research/**/*.md
 
 final_thesis
-
+CLAUDE.md
 IMPLEMENTATION_PLAN.md
