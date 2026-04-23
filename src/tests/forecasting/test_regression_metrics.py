@@ -477,35 +477,111 @@ class TestVolatilityMetricsWithNoise:
         assert result_noisy.log_vol_mae > result_perfect.log_vol_mae
 
 
-class TestPipelineStubs:
-    def test_dc_mae_raises(self) -> None:
-        with pytest.raises(NotImplementedError, match="Phase 11"):
+class TestDCMAE:
+    def test_known_values(self) -> None:
+        """DC-MAE on known data with a direction mask."""
+        actuals = _arr(1.0, 2.0, 3.0, 4.0)
+        preds = _arr(1.5, 2.5, 3.5, 4.5)
+        mask = np.array([True, True, False, False], dtype=np.bool_)
+        result = compute_dc_mae(actuals, preds, mask)
+        # Only first two samples: |1.0-1.5| + |2.0-2.5| = 0.5+0.5 = 1.0, mean = 0.5
+        np.testing.assert_almost_equal(result, 0.5)
+
+    def test_all_correct(self) -> None:
+        """DC-MAE equals regular MAE when all directions correct."""
+        actuals = _arr(1.0, 2.0, 3.0)
+        preds = _arr(1.1, 2.2, 2.8)
+        mask = np.array([True, True, True], dtype=np.bool_)
+        result = compute_dc_mae(actuals, preds, mask)
+        expected = (0.1 + 0.2 + 0.2) / 3.0
+        np.testing.assert_almost_equal(result, expected, decimal=6)
+
+    def test_no_correct_raises(self) -> None:
+        mask = np.array([False, False], dtype=np.bool_)
+        with pytest.raises(ValueError, match="no direction-correct"):
+            compute_dc_mae(_arr(1.0, 2.0), _arr(1.0, 2.0), mask)
+
+    def test_empty_raises(self) -> None:
+        with pytest.raises(ValueError, match="at least one sample"):
             compute_dc_mae(
-                _arr(1.0),
-                _arr(1.0),
-                np.array([True], dtype=np.bool_),
+                np.array([], dtype=np.float64),
+                np.array([], dtype=np.float64),
+                np.array([], dtype=np.bool_),
             )
 
-    def test_dc_rmse_raises(self) -> None:
-        with pytest.raises(NotImplementedError, match="Phase 11"):
-            compute_dc_rmse(
-                _arr(1.0),
-                _arr(1.0),
-                np.array([True], dtype=np.bool_),
+
+class TestDCRMSE:
+    def test_known_values(self) -> None:
+        """DC-RMSE on known data with a direction mask."""
+        actuals = _arr(1.0, 2.0, 3.0, 4.0)
+        preds = _arr(1.5, 2.5, 3.5, 4.5)
+        mask = np.array([True, True, False, False], dtype=np.bool_)
+        result = compute_dc_rmse(actuals, preds, mask)
+        # Only first two: sqrt(mean(0.25, 0.25)) = sqrt(0.25) = 0.5
+        np.testing.assert_almost_equal(result, 0.5)
+
+    def test_no_correct_raises(self) -> None:
+        mask = np.array([False, False], dtype=np.bool_)
+        with pytest.raises(ValueError, match="no direction-correct"):
+            compute_dc_rmse(_arr(1.0, 2.0), _arr(1.0, 2.0), mask)
+
+
+class TestPDR:
+    def test_perfect_pdr(self) -> None:
+        """PDR=1.0 when all confident predictions are successful."""
+        actuals = _arr(0.02, 0.03, 0.015)
+        preds = _arr(0.02, 0.025, 0.02)
+        mask = np.array([True, True, True], dtype=np.bool_)
+        result = compute_pdr(actuals, preds, mask, magnitude_threshold=0.01, realized_threshold=0.005)
+        np.testing.assert_almost_equal(result, 1.0)
+
+    def test_no_confident_returns_zero(self) -> None:
+        """PDR=0.0 when no predictions exceed magnitude threshold."""
+        actuals = _arr(0.02, 0.03)
+        preds = _arr(0.001, 0.002)  # below threshold
+        mask = np.array([True, True], dtype=np.bool_)
+        result = compute_pdr(actuals, preds, mask, magnitude_threshold=0.01)
+        np.testing.assert_almost_equal(result, 0.0)
+
+    def test_empty_raises(self) -> None:
+        with pytest.raises(ValueError, match="at least one sample"):
+            compute_pdr(
+                np.array([], dtype=np.float64),
+                np.array([], dtype=np.float64),
+                np.array([], dtype=np.bool_),
             )
+
+
+class TestEconomicSharpe:
+    def test_perfect_signal(self) -> None:
+        """Positive Sharpe when direction predictions are always correct."""
+        actuals = _arr(0.01, -0.01, 0.02, -0.02, 0.01)
+        preds = _arr(0.01, 0.01, 0.02, 0.02, 0.01)
+        dirs = _arr(1.0, -1.0, 1.0, -1.0, 1.0)
+        result = compute_economic_sharpe(actuals, preds, dirs, transaction_cost=0.0)
+        assert result > 0.0
+
+    def test_transaction_costs_reduce_sharpe(self) -> None:
+        """Higher costs should reduce Sharpe."""
+        actuals = _arr(0.01, -0.01, 0.02, -0.02, 0.01)
+        dirs = _arr(1.0, -1.0, 1.0, -1.0, 1.0)
+        preds = _arr(0.01, 0.01, 0.02, 0.02, 0.01)
+        sr_no_cost = compute_economic_sharpe(actuals, preds, dirs, transaction_cost=0.0)
+        sr_with_cost = compute_economic_sharpe(actuals, preds, dirs, transaction_cost=0.01)
+        assert sr_with_cost < sr_no_cost
+
+    def test_empty_raises(self) -> None:
+        with pytest.raises(ValueError, match="at least one sample"):
+            compute_economic_sharpe(
+                np.array([], dtype=np.float64),
+                np.array([], dtype=np.float64),
+                np.array([], dtype=np.float64),
+            )
+
+
+class TestWDLStub:
+    """WDL remains a stub — requires backtest engine for realistic cost modeling."""
 
     def test_wdl_raises(self) -> None:
         with pytest.raises(NotImplementedError, match="Phase 11"):
             compute_wdl(_arr(1.0), _arr(1.0), _arr(1.0))
-
-    def test_pdr_raises(self) -> None:
-        with pytest.raises(NotImplementedError, match="Phase 11"):
-            compute_pdr(
-                _arr(1.0),
-                _arr(1.0),
-                np.array([True], dtype=np.bool_),
-            )
-
-    def test_economic_sharpe_raises(self) -> None:
-        with pytest.raises(NotImplementedError, match="Phase 11"):
-            compute_economic_sharpe(_arr(1.0), _arr(1.0), _arr(1.0))
