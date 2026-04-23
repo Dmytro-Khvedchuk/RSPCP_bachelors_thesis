@@ -1,5 +1,5 @@
-site_name: RSPCP_bachelors_thesis
-site_url: https://github.com/RSPCP_bachelors_thesis/reference/src/
+site_name: GML-RS — Bachelor's Thesis
+site_url: https://github.com/gml-rs-bachelors-thesis/reference/src/
 theme:
   name: material
   features:
@@ -65,4 +65,4 @@ extra_javascript:
   - https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js
 
 copyright: |
-  &copy; 2025 <a href="https://github.com/"  target="_blank" rel="noopener">RSPCP_bachelors_thesis</a>
+  &copy; 2025 <a href="https://github.com/"  target="_blank" rel="noopener">GML-RS bachelor's thesis</a>

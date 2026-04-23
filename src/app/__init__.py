@@ -1,1 +1,1 @@
-"""RSPCP application package."""
+"""GML-RS application package."""

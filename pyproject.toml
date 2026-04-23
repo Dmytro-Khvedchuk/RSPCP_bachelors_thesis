@@ -1,7 +1,7 @@
 [project]
-name = "rspcp-bachelors-thesis"
+name = "gml-rs-bachelors-thesis"
 version = "0.1.0"
-description = "Add your description here"
+description = "Recommendation System for Cryptocurrency Trading Strategy Deployment Based on Generalized Meta-Labeling — bachelor's thesis."
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [

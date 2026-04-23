@@ -903,6 +903,93 @@ wheels = [
 ]
 
 [[package]]
+name = "gml-rs-bachelors-thesis"
+version = "0.1.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "alembic" },
+    { name = "arch" },
+    { name = "bokeh" },
+    { name = "duckdb" },
+    { name = "duckdb-engine" },
+    { name = "isort" },
+    { name = "lightgbm" },
+    { name = "loguru" },
+    { name = "matplotlib" },
+    { name = "mkdocs" },
+    { name = "mkdocs-api-autonav" },
+    { name = "mkdocs-material" },
+    { name = "mkdocstrings" },
+    { name = "mlflow" },
+    { name = "numpy" },
+    { name = "pandas" },
+    { name = "polars" },
+    { name = "pre-commit" },
+    { name = "pydantic-settings" },
+    { name = "python-binance" },
+    { name = "scikit-learn" },
+    { name = "scipy" },
+    { name = "seaborn" },
+    { name = "sqlalchemy" },
+    { name = "statsmodels" },
+    { name = "tenacity" },
+    { name = "torch" },
+    { name = "typer" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "ipykernel" },
+    { name = "isort" },
+    { name = "jupyterlab" },
+    { name = "pytest" },
+    { name = "ruff" },
+    { name = "ty" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "alembic", specifier = ">=1.18.4" },
+    { name = "arch", specifier = ">=8.0.0" },
+    { name = "bokeh", specifier = ">=3.9.0" },
+    { name = "duckdb", specifier = ">=1.4.4" },
+    { name = "duckdb-engine", specifier = ">=0.17.0" },
+    { name = "isort", specifier = ">=8.0.1" },
+    { name = "lightgbm", specifier = ">=4.6.0" },
+    { name = "loguru", specifier = ">=0.7.3" },
+    { name = "matplotlib", specifier = ">=3.10.8" },
+    { name = "mkdocs", specifier = ">=1.6.1" },
+    { name = "mkdocs-api-autonav", specifier = ">=0.4.0" },
+    { name = "mkdocs-material", specifier = ">=9.7.1" },
+    { name = "mkdocstrings", specifier = ">=1.0.3" },
+    { name = "mlflow", specifier = ">=3.9.0" },
+    { name = "numpy", specifier = ">=2.4.2" },
+    { name = "pandas", specifier = ">=2.3.3" },
+    { name = "polars", specifier = ">=1.38.1" },
+    { name = "pre-commit", specifier = ">=4.5.1" },
+    { name = "pydantic-settings", specifier = ">=2.13.1" },
+    { name = "python-binance", specifier = ">=1.0.29" },
+    { name = "scikit-learn", specifier = ">=1.7.0" },
+    { name = "scipy", specifier = ">=1.17.0" },
+    { name = "seaborn", specifier = ">=0.13.2" },
+    { name = "sqlalchemy", specifier = ">=2.0.46" },
+    { name = "statsmodels", specifier = ">=0.14.6" },
+    { name = "tenacity", specifier = ">=9.1.2" },
+    { name = "torch", specifier = ">=2.7.0" },
+    { name = "typer", specifier = ">=0.24.1" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "ipykernel", specifier = ">=7.2.0" },
+    { name = "isort", specifier = ">=8.0.1" },
+    { name = "jupyterlab", specifier = ">=4.5.6" },
+    { name = "pytest", specifier = ">=9.0.2" },
+    { name = "ruff", specifier = ">=0.15.4" },
+    { name = "ty", specifier = ">=0.0.26" },
+]
+
+[[package]]
 name = "google-auth"
 version = "2.48.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3052,93 +3139,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/da/8a/22b7beea3ee0d44b1916c0c1cb0ee3af23b700b6da9f04991899d0c555d4/rsa-4.9.1.tar.gz", hash = "sha256:e7bdbfdb5497da4c07dfd35530e1a902659db6ff241e39d9953cad06ebd0ae75", size = 29034, upload-time = "2025-04-16T09:51:18.218Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/64/8d/0133e4eb4beed9e425d9a98ed6e081a55d195481b7632472be1af08d2f6b/rsa-4.9.1-py3-none-any.whl", hash = "sha256:68635866661c6836b8d39430f97a996acbd61bfa49406748ea243539fe239762", size = 34696, upload-time = "2025-04-16T09:51:17.142Z" },
-]
-
-[[package]]
-name = "rspcp-bachelors-thesis"
-version = "0.1.0"
-source = { virtual = "." }
-dependencies = [
-    { name = "alembic" },
-    { name = "arch" },
-    { name = "bokeh" },
-    { name = "duckdb" },
-    { name = "duckdb-engine" },
-    { name = "isort" },
-    { name = "lightgbm" },
-    { name = "loguru" },
-    { name = "matplotlib" },
-    { name = "mkdocs" },
-    { name = "mkdocs-api-autonav" },
-    { name = "mkdocs-material" },
-    { name = "mkdocstrings" },
-    { name = "mlflow" },
-    { name = "numpy" },
-    { name = "pandas" },
-    { name = "polars" },
-    { name = "pre-commit" },
-    { name = "pydantic-settings" },
-    { name = "python-binance" },
-    { name = "scikit-learn" },
-    { name = "scipy" },
-    { name = "seaborn" },
-    { name = "sqlalchemy" },
-    { name = "statsmodels" },
-    { name = "tenacity" },
-    { name = "torch" },
-    { name = "typer" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "ipykernel" },
-    { name = "isort" },
-    { name = "jupyterlab" },
-    { name = "pytest" },
-    { name = "ruff" },
-    { name = "ty" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "alembic", specifier = ">=1.18.4" },
-    { name = "arch", specifier = ">=8.0.0" },
-    { name = "bokeh", specifier = ">=3.9.0" },
-    { name = "duckdb", specifier = ">=1.4.4" },
-    { name = "duckdb-engine", specifier = ">=0.17.0" },
-    { name = "isort", specifier = ">=8.0.1" },
-    { name = "lightgbm", specifier = ">=4.6.0" },
-    { name = "loguru", specifier = ">=0.7.3" },
-    { name = "matplotlib", specifier = ">=3.10.8" },
-    { name = "mkdocs", specifier = ">=1.6.1" },
-    { name = "mkdocs-api-autonav", specifier = ">=0.4.0" },
-    { name = "mkdocs-material", specifier = ">=9.7.1" },
-    { name = "mkdocstrings", specifier = ">=1.0.3" },
-    { name = "mlflow", specifier = ">=3.9.0" },
-    { name = "numpy", specifier = ">=2.4.2" },
-    { name = "pandas", specifier = ">=2.3.3" },
-    { name = "polars", specifier = ">=1.38.1" },
-    { name = "pre-commit", specifier = ">=4.5.1" },
-    { name = "pydantic-settings", specifier = ">=2.13.1" },
-    { name = "python-binance", specifier = ">=1.0.29" },
-    { name = "scikit-learn", specifier = ">=1.7.0" },
-    { name = "scipy", specifier = ">=1.17.0" },
-    { name = "seaborn", specifier = ">=0.13.2" },
-    { name = "sqlalchemy", specifier = ">=2.0.46" },
-    { name = "statsmodels", specifier = ">=0.14.6" },
-    { name = "tenacity", specifier = ">=9.1.2" },
-    { name = "torch", specifier = ">=2.7.0" },
-    { name = "typer", specifier = ">=0.24.1" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "ipykernel", specifier = ">=7.2.0" },
-    { name = "isort", specifier = ">=8.0.1" },
-    { name = "jupyterlab", specifier = ">=4.5.6" },
-    { name = "pytest", specifier = ">=9.0.2" },
-    { name = "ruff", specifier = ">=0.15.4" },
-    { name = "ty", specifier = ">=0.0.26" },
 ]
 
 [[package]]
